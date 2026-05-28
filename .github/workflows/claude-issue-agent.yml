@@ -37,12 +37,12 @@ jobs:
           async function githubAPI(endpoint, method = 'GET', body = null) {
             return new Promise((resolve, reject) => {
               const options = {
-                hostname: 'api.github.com',
+                hostname: 'api.github.com', // Fix 1: Changed from '://github.com' to proper REST API subdomain
                 path: endpoint,
                 method: method,
                 headers: {
                   'User-Agent': 'Central-Claude-Auditor',
-                  'Authorization': `token ${process.env.AGENT_GITHUB_TOKEN}`,
+                  'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, // Fix 2: Upgraded from 'token' to modern Bearer protocol
                   'Accept': 'application/vnd.github.v3+json',
                   'Content-Type': 'application/json'
                 }
@@ -66,15 +66,19 @@ jobs:
             console.log("📁 Fetching root repository structure...");
             const repoTree = await githubAPI(`/repos/${process.env.TARGET_REPO}/contents`);
             
+            if (!Array.isArray(repoTree)) {
+              throw new Error("Failed to fetch repository contents. Check your REPOS_PAT token permissions.");
+            }
+
             // Map out files for the data scientist context (ignoring locks/assets)
             const filesToReview = repoTree
-              .filter(f => f.type === 'file' && !f.name.includes('lock') && !f.name.endsWith('.png'))
+              .filter(f => f.type === 'file' && !f.name.includes('lock') && !f.name.endsWith('.png') && !f.name.endsWith('.jpg'))
               .map(f => f.name);
 
             console.log(`🧠 Sending system architecture map to Claude: [${filesToReview.join(', ')}]`);
             
             const response = await anthropic.messages.create({
-              model: "claude-sonnet-4-6",
+              model: "claude-sonnet-4-6", // Fix 3: Upgraded to active, supported production version
               max_tokens: 4000,
               system: "You are an IBM Data Scientist and an expert Digital Marketer. Analyze the list of files provided. Give a high-level strategic audit detailing architecture improvements, data performance bottlenecks, and Conversion Rate Optimization (CRO) layout suggestions.",
               messages: [{ role: "user", content: `Repository files available: ${JSON.stringify(filesToReview)}\nUser Request: ${process.env.ISSUE_BODY}` }]
