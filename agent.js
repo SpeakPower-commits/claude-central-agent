@@ -66,7 +66,7 @@ async function main() {
   console.log("🧠 [AI RUN] Streaming environment variables and prompts to Claude...");
   
   const response = await anthropic.messages.create({
-    model: ""claude-sonnet-4-6",
+    model: "claude-sonnet-4-6",
     max_tokens: 4000,
     system: "You are an expert full-stack engineer, an IBM Data Scientist, and a conversion-driven Digital Marketer. Write production-ready, clean, data-efficient code. Return ONLY the raw file contents. Do not include markdown wraps, conversational introductions, or summary commentary.",
     messages: [
