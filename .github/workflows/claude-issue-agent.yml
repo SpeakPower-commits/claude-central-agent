@@ -39,16 +39,18 @@ jobs:
             if (!repoMatch) throw new Error("Missing 'Repo: owner/repo-name' in issue body.");
             
             const targetRepo = repoMatch[1].trim();
-            console.log(`🌍 Target Repository established: ${targetRepo}`);
+            console.log("🌍 Target Repository established: " + targetRepo);
             console.log("📁 Fetching root repository structure dynamically...");
             
-            // Hardcoded native url call completely avoids the internal getaddrinfo module bug
-            const url = `https://github.com{targetRepo}/contents`;
+            // Breaking up the domain string entirely to trick the bash pre-parser layout
+            const apiBase = "https:/" + "/api.github.com";
+            const url = apiBase + "/repos/" + targetRepo + "/contents";
+            
             const response = await fetch(url, {
               method: 'GET',
               headers: {
                 'User-Agent': 'Central-Claude-Auditor',
-                'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`,
+                'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN,
                 'Accept': 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json'
               }
@@ -56,7 +58,7 @@ jobs:
 
             if (!response.ok) {
               const errText = await response.text();
-              throw new Error(`GitHub API Failed: ${response.status} - ${errText}`);
+              throw new Error("GitHub API Failed: " + response.status + " - " + errText);
             }
 
             const repoTree = await response.json();
@@ -71,11 +73,11 @@ jobs:
             const fileShas = {};
 
             for (const file of criticalFiles) {
-              const fileUrl = `https://github.com{targetRepo}/contents/${file}`;
+              const fileUrl = apiBase + "/repos/" + targetRepo + "/contents/" + file;
               const fileRes = await fetch(fileUrl, {
                 headers: {
                   'User-Agent': 'Central-Claude-Auditor',
-                  'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`,
+                  'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN,
                   'Accept': 'application/vnd.github.v3+json'
                 }
               });
@@ -87,44 +89,35 @@ jobs:
             }
 
             console.log("🧠 Transmitting architecture maps to Claude...");
-            let codeContextBlock = `Layout: ${JSON.stringify(allFiles)}\n\n`;
+            let codeContextBlock = "Layout: " + JSON.stringify(allFiles) + "\n\n";
             for (const [name, code] of Object.entries(originalCodes)) {
-              codeContextBlock += `=== FILE: ${name} ===\n${code}\n==================\n\n`;
+              codeContextBlock += "=== FILE: " + name + " ===\n" + code + "\n==================\n\n";
             }
 
-            const promptInstructions = `
-            You are a lead senior software engineer. Analyze the repository files and modify them to implement the dynamic multi-form feature requirement.
-            
-            FEATURE REQUIREMENT:
-            Modify the codebase so that administrative and management roles (Admin Officer, Finance & Admin Manager, ED) can dynamically attach and append any number of supplementary forms/documents (e.g., LPOs, Evaluation Reports, GRNs, and Invoices) to ANY already submitted request object. Ensure the underlying request tracking data structures support an array or sub-list of attachments.
-            
-            CRITICAL OUTPUT FORMATTING RULE:
-            You must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.js' followed by the code.
-            Do not write conversational text outside the markdown code blocks.
-            `;
+            const promptInstructions = "You are a lead senior software engineer. Analyze the repository files and modify them to implement the dynamic multi-form feature requirement.\n\nFEATURE REQUIREMENT:\nModify the codebase so that administrative and management roles (Admin Officer, Finance & Admin Manager, ED) can dynamically attach and append any number of supplementary forms/documents (e.g., LPOs, Evaluation Reports, GRNs, and Invoices) to ANY already submitted request object. Ensure the underlying request tracking data structures support an array or sub-list of attachments.\n\nCRITICAL OUTPUT FORMATTING RULE:\nYou must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.js' followed by the code.\nDo not write conversational text outside the markdown code blocks.";
 
             const aiResponse = await anthropic.messages.create({
-              model: "claude-sonnet-4-6",
+              model: "claude-3-5-sonnet-latest",
               max_tokens: 4000,
               system: promptInstructions,
-              messages: [{ role: "user", content: `${codeContextBlock}\n\nUser Request:\n${bodyText}` }]
+              messages: [{ role: "user", content: codeContextBlock + "\n\nUser Request:\n" + bodyText }]
             });
 
-            const aiText = aiResponse.content.text;
+            const aiText = aiResponse.content[0].text;
             const blockRegex = /```(?:javascript|html|json)?([\s\S]*?)```/g;
             
-            const newBranchName = `claude-patch-issue-${process.env.ISSUE_NUMBER}`;
+            const newBranchName = "claude-patch-issue-" + process.env.ISSUE_NUMBER;
             
-            const mainRes = await fetch(`https://github.com{targetRepo}/git/ref/heads/main`, {
-              headers: { 'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, 'User-Agent': 'Central-Claude-Auditor' }
+            const mainRes = await fetch(apiBase + "/repos/" + targetRepo + "/git/ref/heads/main", {
+              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor' }
             });
             const mainData = await mainRes.json();
             const mainLatestSha = mainData.object.sha;
 
-            await fetch(`https://github.com{targetRepo}/git/refs`, {
+            await fetch(apiBase + "/repos/" + targetRepo + "/git/refs", {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ref: `refs/heads/${newBranchName}`, sha: mainLatestSha })
+              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ref: "refs/heads/" + newBranchName, sha: mainLatestSha })
             });
 
             let match;
@@ -137,13 +130,13 @@ jobs:
               if (nameMatch) {
                 const targetedFileName = nameMatch[1].trim();
                 if (fileShas[targetedFileName]) {
-                  console.log(`🚀 Uploading upgrades to branch for ${targetedFileName}...`);
+                  console.log("🚀 Uploading upgrades to branch for " + targetedFileName + "...");
                   
-                  await fetch(`https://github.com{targetRepo}/contents/${targetedFileName}`, {
+                  await fetch(apiBase + "/repos/" + targetRepo + "/contents/" + targetedFileName, {
                     method: 'PUT',
-                    headers: { 'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
+                    headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                      message: `🤖 Claude upgrade for ${targetedFileName}`,
+                      message: "🤖 Claude upgrade for " + targetedFileName,
                       content: Buffer.from(codeBlock).toString('base64'),
                       sha: fileShas[targetedFileName],
                       branch: newBranchName
@@ -154,26 +147,32 @@ jobs:
               }
             }
 
-            const prRes = await fetch(`https://github.com{targetRepo}/pulls`, {
+            const prRes = await fetch(apiBase + "/repos/" + targetRepo + "/pulls", {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
+              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                title: `🤖 Review Required: Claude Upgrade for Issue #${process.env.ISSUE_NUMBER}`,
+                title: "🤖 Review Required: Claude Upgrade for Issue #" + process.env.ISSUE_NUMBER,
                 head: newBranchName,
                 base: 'main',
-                body: `Review file edits for multi-form attachments before merging.`
+                body: "Review file edits for multi-form attachments before merging."
               })
             });
             const prData = await prRes.json();
 
-            await fetch(`https://github.com{process.env.GITHUB_REPOSITORY}/issues/${process.env.ISSUE_NUMBER}/comments`, {
+            // Comment back on active agent repository
+            const currentIssueRepo = process.env.GITHUB_REPOSITORY;
+            await fetch(apiBase + "/repos/" + currentIssueRepo + "/issues/" + process.env.ISSUE_NUMBER + "/comments", {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
-              body: JSON.stringify({ body: `🎉 **Upgrades Ready for Review!**\n\n🔗 **[Click Here to Review and Approve Changes](${prData.html_url})**` })
+              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ body: "🎉 **Upgrades Ready for Review!**\n\n🔗 **[Click Here to Review and Approve Changes](" + prData.html_url + ")**" })
             });
 
             console.log("🎉 Process completed safely!");
           }
+
+          main().catch(err => { console.error(err); process.exit(1); });
+          EOF
+          node run_patch.js
 
           main().catch(err => { console.error(err); process.exit(1); });
           EOF
