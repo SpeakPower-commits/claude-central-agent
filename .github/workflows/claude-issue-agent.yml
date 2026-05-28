@@ -1,10 +1,10 @@
-name: Global Repository Analyzer & Patcher
+name: Universal Multi-Project AI Engineer
 on:
   issues:
-    types: [opened]
+    types: [opened, edited]
 
 jobs:
-  analyze-and-patch:
+  universal-engineer:
     if: contains(github.event.issue.title, 'Audit') || contains(github.event.issue.body, '@claude')
     runs-on: ubuntu-latest
     steps:
@@ -21,15 +21,14 @@ jobs:
           npm init -y
           npm install @anthropic-ai/sdk
 
-      - name: Run Global Audit & Auto-Patch Engine
+      - name: Run Global Cross-Project Engine
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }}
-          TARGET_REPO: "CuePointe/UBF-Request-Portal"
+          AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }} # Make sure this PAT token has access to ALL targeted repositories!
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          cat << 'EOF' > patcher.js
+          cat << 'EOF' > universal_patcher.js
           const { Anthropic } = require('@anthropic-ai/sdk');
           const https = require('https');
           const anthropic = new Anthropic();
@@ -41,7 +40,7 @@ jobs:
                 path: endpoint,
                 method: method,
                 headers: {
-                  'User-Agent': 'Central-Claude-Auditor',
+                  'User-Agent': 'Universal-Claude-Agent',
                   'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`,
                   'Accept': 'application/vnd.github.v3+json',
                   'Content-Type': 'application/json'
@@ -63,55 +62,122 @@ jobs:
           }
 
           async function main() {
-            const targetFile = 'form-renderer.js'; // The core heavy module we want Claude to patch
-            console.log(`📥 Fetching current ${targetFile} content...`);
+            const bodyText = process.env.ISSUE_BODY || "";
             
-            const fileData = await githubAPI(`/repos/${process.env.TARGET_REPO}/contents/${targetFile}`);
-            if (!fileData.content) throw new Error(`Could not load ${targetFile}`);
+            // Regex to find "Target: owner/repository" anywhere in your issue body text
+            const targetRegex = /Target:\s*([a-zA-Z0-9_\.-]+\/[a-zA-Z0-9_\.-]+)/i;
+            const targetMatch = bodyText.match(targetRegex);
             
-            const currentCode = Buffer.from(fileData.content, 'base64').toString('utf8');
-            const fileSha = fileData.sha; // Required by GitHub to update an existing file
+            if (!targetMatch) {
+              throw new Error("Missing target repository mapping! Please add 'Target: owner/repo-name' somewhere inside your issue description.");
+            }
+            
+            const targetRepo = targetMatch[1].trim();
+            console.log(`🌐 Universal mode activated. Target Repository Identified: ${targetRepo}`);
 
-            console.log("🧠 Requesting optimization and direct code rewrite from Claude...");
+            console.log(`📥 Inspecting remote repository structure...`);
+            const repoTree = await githubAPI(`/repos/${targetRepo}/contents`);
             
+            if (!Array.isArray(repoTree)) {
+              throw new Error(`Failed to read content list for ${targetRepo}. Verify repository exists and permissions match.`);
+            }
+
+            const allFiles = repoTree.filter(f => f.type === 'file').map(f => f.name);
+            console.log(`📋 Found files: [${allFiles.join(', ')}]`);
+
+            // Automatically extract up to 4 major logic files found in the project root to analyze
+            const codeExtensions = ['.js', '.ts', '.py', '.html', '.css', '.json'];
+            const filesToAnalyze = repoTree
+              .filter(f => f.type === 'file' && codeExtensions.some(ext => f.name.endsWith(ext)) && !f.name.includes('lock'))
+              .slice(0, 4) // Scan up to 4 core files to protect API context token size limits
+              .map(f => f.name);
+
+            const fileContentsMap = {};
+            const fileShas = {};
+
+            console.log(`📥 Downloading code data for target modules: [${filesToAnalyze.join(', ')}]...`);
+            for (const file of filesToAnalyze) {
+              try {
+                const fileData = await githubAPI(`/repos/${targetRepo}/contents/${file}`);
+                if (fileData.content) {
+                  fileContentsMap[file] = Buffer.from(fileData.content, 'base64').toString('utf8');
+                  fileShas[file] = fileData.sha;
+                }
+              } catch (err) {
+                console.error(`⚠️ Skipping file ${file}: ${err.message}`);
+              }
+            }
+
+            let fileCodeContext = "";
+            for (const [name, text] of Object.entries(fileContentsMap)) {
+              fileCodeContext += `=== FILE: ${name} ===\n${text}\n==================\n\n`;
+            }
+
+            console.log("🧠 Consulting Claude Engine for cross-project code construction...");
+            
+            const systemPrompt = `
+            You are an elite, universal multi-language cloud engineer. Your task is to process the files provided, analyze the user's explicit structural changes, and rewrite the required code modules.
+            
+            CRITICAL FORMATTING INSTRUCTIONS:
+            Return ONLY the updated file contents. Each file MUST be wrapped in a single clean markdown block starting with an identifier comment layout telling us the name.
+            Example:
+            \`\`\`javascript
+            // FILENAME: database.js
+            [updated code here]
+            \`\`\`
+            
+            Do not write explanation paragraphs or greetings outside the raw code blocks. Fix only files that require changes based on the user instruction.
+            `;
+
             const response = await anthropic.messages.create({
               model: "claude-sonnet-4-6",
               max_tokens: 4000,
-              system: `You are an expert software engineer. Analyze the provided file and rewrite it completely to fix performance bottlenecks, bugs, or clean up structure based on the user request. 
-              CRITICAL: Output ONLY the raw, updated JavaScript code inside a single markdown code block starting with \`\`\`javascript and ending with \`\`\`. Do not include conversational text outside the code block.`,
-              messages: [{ role: "user", content: `Current Code of ${targetFile}:\n\`\`\`javascript\n${currentCode}\n\`\`\`\n\nUser Request/Audit Context: ${process.env.ISSUE_BODY}` }]
+              system: systemPrompt,
+              messages: [{ role: "user", content: `Available files tree: ${JSON.stringify(allFiles)}\n\nCore File Codes:\n${fileCodeContext}\n\nUser Engineering Request:\n${bodyText}` }]
             });
 
-            const rawText = response.content[0].text;
-            
-            // Extract the clean JavaScript code out of Claude's markdown wrapper
-            const regex = /```javascript([\s\S]*?)```/;
-            const match = rawText.match(regex);
-            
-            if (!match || !match[1]) {
-              throw new Error("Claude did not return a clean code block. Aborting push to prevent corruption.");
+            const aiText = response.content.text;
+            const blockRegex = /```[a-zA-Z]*([\s\S]*?)```/g;
+            let match;
+            let successfullyPatched = 0;
+
+            while ((match = blockRegex.exec(aiText)) !== null) {
+              const codeBlock = match[1].trim();
+              const filenameMatch = codeBlock.match(/\/\/ FILENAME:\s*([a-zA-Z0-9_\.-]+)/);
+              
+              if (filenameMatch) {
+                const destinationFile = filenameMatch[1].trim();
+                
+                if (fileShas[destinationFile]) {
+                  console.log(`🚀 Overwriting updated code definitions back into ${targetRepo}/${destinationFile}...`);
+                  
+                  const commitPayload = {
+                    message: `🤖 Autonomous AI Engineering Patch - (Triggered by Controller Issue #${process.env.ISSUE_NUMBER})`,
+                    content: Buffer.from(codeBlock).toString('base64'),
+                    sha: fileShas[destinationFile]
+                  };
+
+                  await githubAPI(`/repos/${targetRepo}/contents/${destinationFile}`, 'PUT', commitPayload);
+                  successfullyPatched++;
+                }
+              }
             }
-            
-            const upgradedCode = match[1].trim();
 
-            console.log(`📤 Pushing optimized ${targetFile} directly back to the repository...`);
-            
-            const updatedFilePayload = {
-              message: `🤖 Auto-patcher optimization for ${targetFile} (Issue #${process.env.ISSUE_NUMBER})`,
-              content: Buffer.from(upgradedCode).toString('base64'), // Convert raw text back to base64
-              sha: fileSha // Verifies we are modifying the correct version
-            };
+            console.log("📤 Sending deployment summary comment back to the dashboard repo...");
+            let notificationMessage = `### 🌐 Cross-Project Engine Operations Complete!\n\n**Target Repository Connected:** \`${targetRepo}\`\n`;
+            if (successfullyPatched > 0) {
+              notificationMessage += `🎉 Successfully refactored and updated **${successfullyPatched} source file(s)** directly inside the target project codebase!`;
+            } else {
+              notificationMessage += `⚠️ Claude evaluated the project codebase, but no dynamic code patches could be cleanly isolated. Double-check your instructions or file formatting requirements!`;
+            }
 
-            await githubAPI(`/repos/${process.env.TARGET_REPO}/contents/${targetFile}`, 'PUT', updatedFilePayload);
-            
-            console.log("📤 Logging completion message back to the GitHub issue thread...");
-            await githubAPI(`/repos/CuePointe/claude-central-agent/issues/${process.env.ISSUE_NUMBER}/comments`, 'POST', {
-              body: `🎉 **Success!** Claude analyzed \`${targetFile}\`, refactored the processing algorithms, and committed the changes directly back to your codebase.`
+            await githubAPI(`/repos/${process.env.GITHUB_REPOSITORY}/issues/${process.env.ISSUE_NUMBER}/comments`, 'POST', {
+              body: notificationMessage
             });
-            
-            console.log("🎉 Process finished seamlessly!");
+            console.log("🎉 Run completed successfully!");
           }
 
           main().catch(err => { console.error(err); process.exit(1); });
           EOF
-          node patcher.js
+          node universal_patcher.js
+
