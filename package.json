@@ -1,0 +1,10 @@
+{
+  "name": "claude-central-agent",
+  "version": "1.0.0",
+  "description": "Central background engine for AI codebase modifications",
+  "main": "agent.js",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.0"
+  }
+}
