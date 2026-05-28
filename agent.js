@@ -10,14 +10,20 @@ const anthropic = new Anthropic({
 // Secure HTTPS wrapper to query the GitHub REST API without network clashes
 async function githubAPI(endpoint, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
-    // Sanitize and normalize path links to stop URL and DNS crashes
-    const safePath = encodeURI(endpoint);
-    const cleanPath = safePath.replace('https://github.com', '');
-    const finalPath = cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath;
-    
+    // Forcefully remove any accidental absolute URL prefixes or malformed protocol strings
+    let cleanPath = endpoint
+      .replace(/^https?:\/\//i, '')
+      .replace(/^api\.github\.com/i, '')
+      .replace(/^:\/\//i, '');
+
+    // Ensure the path strictly begins with a single forward slash
+    if (!cleanPath.startsWith('/')) {
+      cleanPath = '/' + cleanPath;
+    }
+
     const options = {
-      hostname: '://github.com',
-      path: finalPath,
+      hostname: 'api.github.com',
+      path: cleanPath,
       method: method,
       headers: {
         'User-Agent': 'Central-Claude-Agent-Engine',
@@ -55,7 +61,7 @@ async function main() {
   let currentCode = "";
   let fileSHA = null;
 
-  // Attempt to extract the codebase file context from the target workspace
+  // Extract the codebase file context from the target workspace
   try {
     const fileData = await githubAPI(`/repos/${repo}/contents/${file}`);
     currentCode = Buffer.from(fileData.content, 'base64').toString('utf-8');
@@ -93,4 +99,3 @@ main().catch(err => {
   console.error("❌ [CRITICAL CRASH] Run Failure:", err.message);
   process.exit(1);
 });
-
