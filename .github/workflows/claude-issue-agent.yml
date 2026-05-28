@@ -1,0 +1,94 @@
+name: Global Repository Analyzer
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  analyze-codebase:
+    if: contains(github.event.issue.title, 'Audit') || contains(github.event.issue.body, '@claude')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Initialize Code Environment
+        uses: actions/checkout@v4
+
+      - name: Initialize Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Virtual Dependency Workspace
+        run: |
+          npm init -y
+          npm install @anthropic-ai/sdk
+
+      - name: Run Global Audit Engine
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }}
+          TARGET_REPO: "CuePointe/UBF-Request-Portal"
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          cat << 'EOF' > auditor.js
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const https = require('https');
+          const anthropic = new Anthropic();
+
+          async function githubAPI(endpoint, method = 'GET', body = null) {
+            return new Promise((resolve, reject) => {
+              const options = {
+                hostname: '://github.com',
+                path: endpoint,
+                method: method,
+                headers: {
+                  'User-Agent': 'Central-Claude-Auditor',
+                  'Authorization': `token ${process.env.AGENT_GITHUB_TOKEN}`,
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json'
+                }
+              };
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  if (res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve(data ? JSON.parse(data) : {});
+                  } else { reject(new Error(`API Error: ${res.statusCode}`)); }
+                });
+              });
+              req.on('error', reject);
+              if (body) req.write(JSON.stringify(body));
+              req.end();
+            });
+          }
+
+          async function main() {
+            console.log("📁 Fetching root repository structure...");
+            const repoTree = await githubAPI(`/repos/${process.env.TARGET_REPO}/contents`);
+            
+            // Map out files for the data scientist context (ignoring locks/assets)
+            const filesToReview = repoTree
+              .filter(f => f.type === 'file' && !f.name.includes('lock') && !f.name.endsWith('.png'))
+              .map(f => f.name);
+
+            console.log(`🧠 Sending system architecture map to Claude: [${filesToReview.join(', ')}]`);
+            
+            const response = await anthropic.messages.create({
+              model: "claude-sonnet-4-6",
+              max_tokens: 4000,
+              system: "You are an IBM Data Scientist and an expert Digital Marketer. Analyze the list of files provided. Give a high-level strategic audit detailing architecture improvements, data performance bottlenecks, and Conversion Rate Optimization (CRO) layout suggestions.",
+              messages: [{ role: "user", content: `Repository files available: ${JSON.stringify(filesToReview)}\nUser Request: ${process.env.ISSUE_BODY}` }]
+            });
+
+            const auditReport = response.content[0].text;
+            
+            console.log("📤 Posting strategic audit report back to the active issue thread...");
+            await githubAPI(`/repos/CuePointe/claude-central-agent/issues/${process.env.ISSUE_NUMBER}/comments`, 'POST', {
+              body: `### 📊 System Audit Report: UBF Request Portal\n\n${auditReport}`
+            });
+            console.log("🎉 Audit successfully posted!");
+          }
+
+          main().catch(err => { console.error(err); process.exit(1); });
+          EOF
+          node auditor.js
