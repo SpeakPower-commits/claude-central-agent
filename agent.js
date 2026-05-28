@@ -2,25 +2,30 @@ const fs = require('fs');
 const https = require('https');
 const { Anthropic } = require('@anthropic-ai/sdk');
 
-// Initialize the Anthropic Client with explicit security handshakes
+// Initialize the Anthropic Client with secure credentials
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Robust HTTPS wrapper to query the GitHub REST API securely
+// Secure HTTPS wrapper to query the GitHub REST API without network clashes
 async function githubAPI(endpoint, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
-    // URL encode the endpoint paths to neutralize malicious or messy whitespace data crashes
+    // Sanitize and normalize path links to stop URL and DNS crashes
     const safePath = encodeURI(endpoint);
+    const cleanPath = safePath.replace('https://github.com', '');
+    const finalPath = cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath;
     
-   // Clean the path formatting to prevent DNS resolution wrapper glitches
-const cleanPath = safePath.replace(/([^:]\/)\/+/g, "$1").replace('https://api.github.com', '');
-
-const options = {
-  hostname: 'api.github.com',
-  path: cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath,
-  method: method,
-  headers: {
+    const options = {
+      hostname: '://github.com',
+      path: finalPath,
+      method: method,
+      headers: {
+        'User-Agent': 'Central-Claude-Agent-Engine',
+        'Authorization': `token ${process.env.AGENT_GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      }
+    };
 
     const req = https.request(options, (res) => {
       let data = '';
@@ -88,3 +93,4 @@ main().catch(err => {
   console.error("❌ [CRITICAL CRASH] Run Failure:", err.message);
   process.exit(1);
 });
+
