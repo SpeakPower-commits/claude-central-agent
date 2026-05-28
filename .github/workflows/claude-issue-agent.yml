@@ -1,10 +1,10 @@
-name: Universal Multi-Project AI Engineer
+name: Universal Cross-Repository Auto-Engineer
 on:
   issues:
-    types: [opened, edited]
+    types: [opened]
 
 jobs:
-  universal-engineer:
+  analyze-and-patch:
     if: contains(github.event.issue.title, 'Audit') || contains(github.event.issue.body, '@claude')
     runs-on: ubuntu-latest
     steps:
@@ -21,12 +21,13 @@ jobs:
           npm init -y
           npm install @anthropic-ai/sdk
 
-      - name: Run Global Cross-Project Engine
+      - name: Run Universal Multi-File Patch Engine
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }} # Make sure this PAT token has access to ALL targeted repositories!
+          AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
+          CURRENT_OWNER: ${{ github.repository_owner }}
         run: |
           cat << 'EOF' > universal_patcher.js
           const { Anthropic } = require('@anthropic-ai/sdk');
@@ -40,7 +41,7 @@ jobs:
                 path: endpoint,
                 method: method,
                 headers: {
-                  'User-Agent': 'Universal-Claude-Agent',
+                  'User-Agent': 'Central-Claude-Auditor',
                   'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`,
                   'Accept': 'application/vnd.github.v3+json',
                   'Content-Type': 'application/json'
@@ -64,120 +65,117 @@ jobs:
           async function main() {
             const bodyText = process.env.ISSUE_BODY || "";
             
-            // Regex to find "Target: owner/repository" anywhere in your issue body text
-            const targetRegex = /Target:\s*([a-zA-Z0-9_\.-]+\/[a-zA-Z0-9_\.-]+)/i;
-            const targetMatch = bodyText.match(targetRegex);
-            
-            if (!targetMatch) {
-              throw new Error("Missing target repository mapping! Please add 'Target: owner/repo-name' somewhere inside your issue description.");
+            // Extract repository name from issue body
+            const repoMatch = bodyText.match(/Repo:\s*([a-zA-Z0-9_\-\.\/]+)/i);
+            if (!repoMatch) {
+              throw new Error("Missing target repository! Please specify 'Repo: owner/repo-name' inside your issue body.");
             }
             
-            const targetRepo = targetMatch[1].trim();
-            console.log(`🌐 Universal mode activated. Target Repository Identified: ${targetRepo}`);
-
-            console.log(`📥 Inspecting remote repository structure...`);
-            const repoTree = await githubAPI(`/repos/${targetRepo}/contents`);
+            let targetRepo = repoMatch[1].trim();
+            if (!targetRepo.includes('/')) {
+              targetRepo = `${process.env.CURRENT_OWNER}/${targetRepo}`;
+            }
             
+            console.log(`🌍 Target Repository dynamically established: ${targetRepo}`);
+
+            console.log("📁 Fetching root repository structure dynamically...");
+            const repoTree = await githubAPI(`/repos/${targetRepo}/contents`);
             if (!Array.isArray(repoTree)) {
-              throw new Error(`Failed to read content list for ${targetRepo}. Verify repository exists and permissions match.`);
+              throw new Error(`Failed to read structural contents of ${targetRepo}. Verify token permissions.`);
             }
 
             const allFiles = repoTree.filter(f => f.type === 'file').map(f => f.name);
-            console.log(`📋 Found files: [${allFiles.join(', ')}]`);
-
-            // Automatically extract up to 4 major logic files found in the project root to analyze
-            const codeExtensions = ['.js', '.ts', '.py', '.html', '.css', '.json'];
-            const filesToAnalyze = repoTree
-              .filter(f => f.type === 'file' && codeExtensions.some(ext => f.name.endsWith(ext)) && !f.name.includes('lock'))
-              .slice(0, 4) // Scan up to 4 core files to protect API context token size limits
+            const criticalFiles = repoTree
+              .filter(f => f.type === 'file' && (f.name.endsWith('.js') || f.name.endsWith('.html') || f.name.endsWith('.json')) && !f.name.includes('lock'))
               .map(f => f.name);
 
-            const fileContentsMap = {};
+            if (criticalFiles.length === 0) {
+              throw new Error("No primary application files (.js, .html, .json) found to audit in this repository root.");
+            }
+
+            const originalCodes = {};
             const fileShas = {};
 
-            console.log(`📥 Downloading code data for target modules: [${filesToAnalyze.join(', ')}]...`);
-            for (const file of filesToAnalyze) {
+            console.log(`📥 Automatically downloading core logic modules: [${criticalFiles.join(', ')}]...`);
+            for (const file of criticalFiles) {
               try {
                 const fileData = await githubAPI(`/repos/${targetRepo}/contents/${file}`);
                 if (fileData.content) {
-                  fileContentsMap[file] = Buffer.from(fileData.content, 'base64').toString('utf8');
+                  originalCodes[file] = Buffer.from(fileData.content, 'base64').toString('utf8');
                   fileShas[file] = fileData.sha;
                 }
-              } catch (err) {
-                console.error(`⚠️ Skipping file ${file}: ${err.message}`);
+              } catch (e) {
+                console.error(`⚠️ Could not download ${file}: ${e.message}`);
               }
             }
 
-            let fileCodeContext = "";
-            for (const [name, text] of Object.entries(fileContentsMap)) {
-              fileCodeContext += `=== FILE: ${name} ===\n${text}\n==================\n\n`;
+            console.log("🧠 Transmitting architecture map to Claude for autonomous engineering updates...");
+
+            let codeContextBlock = `Directory files layout: ${JSON.stringify(allFiles)}\n\n`;
+            for (const [name, code] of Object.entries(originalCodes)) {
+              codeContextBlock += `=== FILE: ${name} ===\n${code}\n==================\n\n`;
             }
 
-            console.log("🧠 Consulting Claude Engine for cross-project code construction...");
+            const promptInstructions = `
+            You are a universal principal system architect and cross-functional software engineer. Your job is to analyze the provided files and fully execute the user's modifications directly on the code blocks.
             
-            const systemPrompt = `
-            You are an elite, universal multi-language cloud engineer. Your task is to process the files provided, analyze the user's explicit structural changes, and rewrite the required code modules.
-            
-            CRITICAL FORMATTING INSTRUCTIONS:
-            Return ONLY the updated file contents. Each file MUST be wrapped in a single clean markdown block starting with an identifier comment layout telling us the name.
+            CRITICAL OUTPUT FORMATTING RULE:
+            You must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.extension' followed by the code.
             Example:
             \`\`\`javascript
-            // FILENAME: database.js
-            [updated code here]
+            // FILENAME: script.js
+            [your modified code here]
             \`\`\`
-            
-            Do not write explanation paragraphs or greetings outside the raw code blocks. Fix only files that require changes based on the user instruction.
+            Do not write conversational text outside the markdown code blocks.
             `;
 
             const response = await anthropic.messages.create({
               model: "claude-sonnet-4-6",
               max_tokens: 4000,
-              system: systemPrompt,
-              messages: [{ role: "user", content: `Available files tree: ${JSON.stringify(allFiles)}\n\nCore File Codes:\n${fileCodeContext}\n\nUser Engineering Request:\n${bodyText}` }]
+              system: promptInstructions,
+              messages: [{ role: "user", content: `${codeContextBlock}\n\nUser Engineering Request:\n${bodyText}` }]
             });
 
-            const aiText = response.content.text;
-            const blockRegex = /```[a-zA-Z]*([\s\S]*?)```/g;
+            const aiText = response.content[0].text;
+            const blockRegex = /```(?:javascript|html|json)?([\s\S]*?)```/g;
             let match;
-            let successfullyPatched = 0;
+            let patchedCounter = 0;
 
             while ((match = blockRegex.exec(aiText)) !== null) {
               const codeBlock = match[1].trim();
-              const filenameMatch = codeBlock.match(/\/\/ FILENAME:\s*([a-zA-Z0-9_\.-]+)/);
+              const nameMatch = codeBlock.match(/\/\/ FILENAME:\s*([a-zA-Z0-9_\.-]+)/);
               
-              if (filenameMatch) {
-                const destinationFile = filenameMatch[1].trim();
-                
-                if (fileShas[destinationFile]) {
-                  console.log(`🚀 Overwriting updated code definitions back into ${targetRepo}/${destinationFile}...`);
+              if (nameMatch) {
+                const targetedFileName = nameMatch[1].trim();
+                if (fileShas[targetedFileName]) {
+                  console.log(`🚀 Injecting engineered upgrades directly into ${targetedFileName}...`);
                   
-                  const commitPayload = {
-                    message: `🤖 Autonomous AI Engineering Patch - (Triggered by Controller Issue #${process.env.ISSUE_NUMBER})`,
+                  const updatedPayload = {
+                    message: `🤖 Autonomous feature deployment: Engineering updates for ${targetedFileName} (Issue #${process.env.ISSUE_NUMBER})`,
                     content: Buffer.from(codeBlock).toString('base64'),
-                    sha: fileShas[destinationFile]
+                    sha: fileShas[targetedFileName]
                   };
 
-                  await githubAPI(`/repos/${targetRepo}/contents/${destinationFile}`, 'PUT', commitPayload);
-                  successfullyPatched++;
+                  await githubAPI(`/repos/${targetRepo}/contents/${targetedFileName}`, 'PUT', updatedPayload);
+                  patchedCounter++;
                 }
               }
             }
 
-            console.log("📤 Sending deployment summary comment back to the dashboard repo...");
-            let notificationMessage = `### 🌐 Cross-Project Engine Operations Complete!\n\n**Target Repository Connected:** \`${targetRepo}\`\n`;
-            if (successfullyPatched > 0) {
-              notificationMessage += `🎉 Successfully refactored and updated **${successfullyPatched} source file(s)** directly inside the target project codebase!`;
-            } else {
-              notificationMessage += `⚠️ Claude evaluated the project codebase, but no dynamic code patches could be cleanly isolated. Double-check your instructions or file formatting requirements!`;
+            if (patchedCounter === 0) {
+              throw new Error("Could not parse clean code fragments from Claude's response. Ensure format matches the pattern rule.");
             }
 
+            console.log("📤 Logging completion details back to the agent controller dashboard...");
             await githubAPI(`/repos/${process.env.GITHUB_REPOSITORY}/issues/${process.env.ISSUE_NUMBER}/comments`, 'POST', {
-              body: notificationMessage
+              body: `🎉 **Universal Architecture Upgrade Complete!**\n\nClaude has scanned the targeted codebase at \`${targetRepo}\`, mapped its critical application patterns, and pushed the requested engineering updates directly to the repository files successfully.`
             });
-            console.log("🎉 Run completed successfully!");
+
+            console.log("🎉 Process completed flawlessly!");
           }
 
           main().catch(err => { console.error(err); process.exit(1); });
           EOF
           node universal_patcher.js
+
 
