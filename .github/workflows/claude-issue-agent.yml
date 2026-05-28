@@ -35,15 +35,25 @@ jobs:
 
           async function main() {
             const bodyText = process.env.ISSUE_BODY || "";
-            const repoMatch = bodyText.match(/Repo:\s*([a-zA-Z0-9_\-\.\/]+)/i);
+            const repoMatch = bodyText.match(/Repo:\s*([a-zA-Z0-9_\-\.\/:]+)/i);
             if (!repoMatch) throw new Error("Missing 'Repo: owner/repo-name' in issue body.");
             
-            const targetRepo = repoMatch[0].replace(/Repo:\s*/i, "").trim();
+            // Clean up all possible prefixes, protocols, or spaces from the user text
+            let rawInput = repoMatch[1].trim();
+            let targetRepo = rawInput
+              .replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "")
+              .replace(/^:\/\//, "")
+              .replace(/^\//, "");
+
+            if (!targetRepo.includes('/')) {
+              targetRepo = process.env.CURRENT_OWNER + "/" + targetRepo;
+            }
+            
             console.log("🌍 Target Repository established: " + targetRepo);
             console.log("📁 Fetching root repository structure dynamically...");
             
-            const apiBase = "https:/" + "/://github.com";
-            const url = apiBase + "/repos/" + targetRepo + "/contents";
+            // Safe URL Assembly
+            const url = "https://github.com" + targetRepo + "/contents";
             
             const response = await fetch(url, {
               method: 'GET',
@@ -72,7 +82,7 @@ jobs:
             const fileShas = {};
 
             for (const file of criticalFiles) {
-              const fileUrl = apiBase + "/repos/" + targetRepo + "/contents/" + file;
+              const fileUrl = "https://github.com" + targetRepo + "/contents/" + file;
               const fileRes = await fetch(fileUrl, {
                 headers: {
                   'User-Agent': 'Central-Claude-Auditor',
@@ -93,7 +103,7 @@ jobs:
               codeContextBlock += "=== FILE: " + name + " ===\n" + code + "\n==================\n\n";
             }
 
-            const promptInstructions = "You are a lead senior software engineer. Analyze the repository files and modify them to implement the dynamic multi-form feature requirement.\n\nFEATURE REQUIREMENT:\nModify the codebase so that administrative and management roles (Admin Officer, Finance & Admin Manager, ED) can dynamically attach and append any number of supplementary forms/documents (e.g., LPOs, Evaluation Reports, GRNs, and Invoices) to ANY already submitted request object. Ensure the underlying request tracking data structures support an array or sub-list of attachments.\n\nCRITICAL OUTPUT FORMATTING RULE:\nYou must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.js' followed by the code.\nDo not write conversational text outside the markdown code blocks.";
+            const promptInstructions = "You are a lead senior software engineer. Analyze the repository files and modify them to implement the dynamic multi-form feature requirement.\n\nFEATURE REQUIREMENT:\nModify the codebase so that administrative and management roles (Admin Officer, Finance & Admin Manager, ED) can dynamically attach and append any number of supplementary forms/documents (e.g., LPOs, Evaluation Reports, GRNs, and Invoices) to ANY already submitted request object. Ensure the underlying request tracking data structures support an array or sub-list of attachments.\n\nCRITICAL OUTPUT FORMATTING RULE:\nYou must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.js' followed by the code. Do not write conversational text outside the markdown code blocks.";
 
             const aiResponse = await anthropic.messages.create({
               model: "claude-sonnet-4-6",
@@ -107,13 +117,13 @@ jobs:
             
             const newBranchName = "claude-patch-issue-" + process.env.ISSUE_NUMBER;
             
-            const mainRes = await fetch(apiBase + "/repos/" + targetRepo + "/git/ref/heads/main", {
+            const mainRes = await fetch("https://github.com" + targetRepo + "/git/ref/heads/main", {
               headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor' }
             });
             const mainData = await mainRes.json();
             const mainLatestSha = mainData.object.sha;
 
-            await fetch(apiBase + "/repos/" + targetRepo + "/git/refs", {
+            await fetch("https://github.com" + targetRepo + "/git/refs", {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
               body: JSON.stringify({ ref: "refs/heads/" + newBranchName, sha: mainLatestSha })
@@ -131,7 +141,7 @@ jobs:
                 if (fileShas[targetedFileName]) {
                   console.log("🚀 Uploading upgrades to branch for " + targetedFileName + "...");
                   
-                  await fetch(apiBase + "/repos/" + targetRepo + "/contents/" + targetedFileName, {
+                  await fetch("https://github.com" + targetRepo + "/contents/" + targetedFileName, {
                     method: 'PUT',
                     headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -146,7 +156,7 @@ jobs:
               }
             }
 
-            const prRes = await fetch(apiBase + "/repos/" + targetRepo + "/pulls", {
+            const prRes = await fetch("https://github.com" + targetRepo + "/pulls", {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -159,7 +169,7 @@ jobs:
             const prData = await prRes.json();
 
             const currentIssueRepo = process.env.GITHUB_REPOSITORY;
-            await fetch(apiBase + "/repos/" + currentIssueRepo + "/issues/" + process.env.ISSUE_NUMBER + "/comments", {
+            await fetch("https://github.com" + currentIssueRepo + "/issues/" + process.env.ISSUE_NUMBER + "/comments", {
               method: 'POST',
               headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
               body: JSON.stringify({ body: "🎉 **Upgrades Ready for Review!**\n\n🔗 **[Click Here to Review and Approve Changes](" + prData.html_url + ")**" })
