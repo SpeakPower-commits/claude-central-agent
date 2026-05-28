@@ -38,12 +38,11 @@ jobs:
             const repoMatch = bodyText.match(/Repo:\s*([a-zA-Z0-9_\-\.\/]+)/i);
             if (!repoMatch) throw new Error("Missing 'Repo: owner/repo-name' in issue body.");
             
-            const targetRepo = repoMatch[1].trim();
+            const targetRepo = repoMatch[0].replace(/Repo:\s*/i, "").trim();
             console.log("🌍 Target Repository established: " + targetRepo);
             console.log("📁 Fetching root repository structure dynamically...");
             
-            // Breaking up the domain string entirely to trick the bash pre-parser layout
-            const apiBase = "https:/" + "/api.github.com";
+            const apiBase = "https:/" + "/://github.com";
             const url = apiBase + "/repos/" + targetRepo + "/contents";
             
             const response = await fetch(url, {
@@ -97,13 +96,13 @@ jobs:
             const promptInstructions = "You are a lead senior software engineer. Analyze the repository files and modify them to implement the dynamic multi-form feature requirement.\n\nFEATURE REQUIREMENT:\nModify the codebase so that administrative and management roles (Admin Officer, Finance & Admin Manager, ED) can dynamically attach and append any number of supplementary forms/documents (e.g., LPOs, Evaluation Reports, GRNs, and Invoices) to ANY already submitted request object. Ensure the underlying request tracking data structures support an array or sub-list of attachments.\n\nCRITICAL OUTPUT FORMATTING RULE:\nYou must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.js' followed by the code.\nDo not write conversational text outside the markdown code blocks.";
 
             const aiResponse = await anthropic.messages.create({
-              model: "claude-3-5-sonnet-latest",
+              model: "claude-sonnet-4-6",
               max_tokens: 4000,
               system: promptInstructions,
               messages: [{ role: "user", content: codeContextBlock + "\n\nUser Request:\n" + bodyText }]
             });
 
-            const aiText = aiResponse.content[0].text;
+            const aiText = aiResponse.content.text;
             const blockRegex = /```(?:javascript|html|json)?([\s\S]*?)```/g;
             
             const newBranchName = "claude-patch-issue-" + process.env.ISSUE_NUMBER;
@@ -159,7 +158,6 @@ jobs:
             });
             const prData = await prRes.json();
 
-            // Comment back on active agent repository
             const currentIssueRepo = process.env.GITHUB_REPOSITORY;
             await fetch(apiBase + "/repos/" + currentIssueRepo + "/issues/" + process.env.ISSUE_NUMBER + "/comments", {
               method: 'POST',
@@ -173,9 +171,4 @@ jobs:
           main().catch(err => { console.error(err); process.exit(1); });
           EOF
           node run_patch.js
-
-          main().catch(err => { console.error(err); process.exit(1); });
-          EOF
-          node run_patch.js
-
 
