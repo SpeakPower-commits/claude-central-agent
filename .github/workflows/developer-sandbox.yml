@@ -1,0 +1,42 @@
+name: Central Claude Coding Agent
+on:
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: 'Target application name (e.g., UBF-Request-Portal)'
+        required: true
+        type: string
+      target_file:
+        description: 'Target filename with path (e.g., src/index.js)'
+        required: true
+        type: string
+      user_prompt:
+        description: 'Data Scientist & CRO directive for Claude'
+        required: true
+        type: string
+
+jobs:
+  execute-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Initialize Repository Stream
+        uses: actions/checkout@v4
+
+      - name: Initialize Node Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Virtual Dependency Workspace
+        run: |
+          npm init -y
+          npm install @anthropic-ai/sdk
+
+      - name: Execute Core AI Engine
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }}
+          TARGET_REPO: ${{ github.repository_owner }}/${{ inputs.target_repository }}
+          TARGET_FILE: ${{ inputs.target_file }}
+          USER_PROMPT: ${{ inputs.user_prompt }}
+        run: node agent.js
