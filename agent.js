@@ -13,17 +13,14 @@ async function githubAPI(endpoint, method = 'GET', body = null) {
     // URL encode the endpoint paths to neutralize malicious or messy whitespace data crashes
     const safePath = encodeURI(endpoint);
     
-    const options = {
-      hostname: '://github.com',
-      path: safePath,
-      method: method,
-      headers: {
-        'User-Agent': 'Central-Claude-Agent-Engine',
-        'Authorization': `token ${process.env.AGENT_GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      }
-    };
+   // Clean the path formatting to prevent DNS resolution wrapper glitches
+const cleanPath = safePath.replace(/([^:]\/)\/+/g, "$1").replace('https://api.github.com', '');
+
+const options = {
+  hostname: 'api.github.com',
+  path: cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath,
+  method: method,
+  headers: {
 
     const req = https.request(options, (res) => {
       let data = '';
