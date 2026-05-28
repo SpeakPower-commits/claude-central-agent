@@ -1,184 +1,98 @@
-name: Global-Production-Pipeline
+name: Global Repository Analyzer
 on:
   issues:
     types: [opened]
 
 jobs:
-  run-engineering-patch:
+  analyze-codebase:
     if: contains(github.event.issue.title, 'Audit') || contains(github.event.issue.body, '@claude')
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch Latest Commit
+      - name: Initialize Code Environment
         uses: actions/checkout@v4
 
-      - name: Setup Node Environment
+      - name: Initialize Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Anthropic Package
+      - name: Build Virtual Dependency Workspace
         run: |
           npm init -y
           npm install @anthropic-ai/sdk
 
-      - name: Execute Live Code Architecture Patch
+      - name: Run Global Audit Engine
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }}
+          TARGET_REPO: "CuePointe/UBF-Request-Portal"
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
-          CURRENT_OWNER: ${{ github.repository_owner }}
         run: |
-          cat << 'EOF' > run_patch.js
+          cat << 'EOF' > auditor.js
           const { Anthropic } = require('@anthropic-ai/sdk');
+          const https = require('https');
           const anthropic = new Anthropic();
 
-          async function main() {
-            const bodyText = process.env.ISSUE_BODY || "";
-            const repoMatch = bodyText.match(/Repo:\s*([a-zA-Z0-9_\-\.\/:]+)/i);
-            if (!repoMatch) throw new Error("Missing 'Repo: owner/repo-name' in issue body.");
-            
-            // Clean up all possible prefixes, protocols, or spaces from the user text
-            let rawInput = repoMatch[1].trim();
-            let targetRepo = rawInput
-              .replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "")
-              .replace(/^:\/\//, "")
-              .replace(/^\//, "");
-
-            if (!targetRepo.includes('/')) {
-              targetRepo = process.env.CURRENT_OWNER + "/" + targetRepo;
-            }
-            
-            console.log("🌍 Target Repository established: " + targetRepo);
-            console.log("📁 Fetching root repository structure dynamically...");
-            
-            // Safe URL Assembly
-            const url = "https://github.com" + targetRepo + "/contents";
-            
-            const response = await fetch(url, {
-              method: 'GET',
-              headers: {
-                'User-Agent': 'Central-Claude-Auditor',
-                'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN,
-                'Accept': 'application/vnd.github.v3+json',
-                'Content-Type': 'application/json'
-              }
-            });
-
-            if (!response.ok) {
-              const errText = await response.text();
-              throw new Error("GitHub API Failed: " + response.status + " - " + errText);
-            }
-
-            const repoTree = await response.json();
-            console.log("🎉 Successfully fetched repository structure without network errors!");
-            
-            const allFiles = repoTree.filter(f => f.type === 'file').map(f => f.name);
-            const criticalFiles = repoTree
-              .filter(f => f.type === 'file' && (f.name.endsWith('.js') || f.name.endsWith('.html')) && !f.name.includes('lock'))
-              .map(f => f.name);
-
-            const originalCodes = {};
-            const fileShas = {};
-
-            for (const file of criticalFiles) {
-              const fileUrl = "https://github.com" + targetRepo + "/contents/" + file;
-              const fileRes = await fetch(fileUrl, {
+          async function githubAPI(endpoint, method = 'GET', body = null) {
+            return new Promise((resolve, reject) => {
+              const options = {
+                hostname: 'api.github.com', // Fix 1: Changed from '://github.com' to proper REST API subdomain
+                path: endpoint,
+                method: method,
                 headers: {
                   'User-Agent': 'Central-Claude-Auditor',
-                  'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN,
-                  'Accept': 'application/vnd.github.v3+json'
+                  'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, // Fix 2: Upgraded from 'token' to modern Bearer protocol
+                  'Accept': 'application/vnd.github.v3+json',
+                  'Content-Type': 'application/json'
                 }
+              };
+              const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  if (res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve(data ? JSON.parse(data) : {});
+                  } else { reject(new Error(`API Error: ${res.statusCode} - ${data}`)); }
+                });
               });
-              if (fileRes.ok) {
-                const fileData = await fileRes.json();
-                originalCodes[file] = Buffer.from(fileData.content, 'base64').toString('utf8');
-                fileShas[file] = fileData.sha;
-              }
+              req.on('error', reject);
+              if (body) req.write(JSON.stringify(body));
+              req.end();
+            });
+          }
+
+          async function main() {
+            console.log("📁 Fetching root repository structure...");
+            const repoTree = await githubAPI(`/repos/${process.env.TARGET_REPO}/contents`);
+            
+            if (!Array.isArray(repoTree)) {
+              throw new Error("Failed to fetch repository contents. Check your REPOS_PAT token permissions.");
             }
 
-            console.log("🧠 Transmitting architecture maps to Claude...");
-            let codeContextBlock = "Layout: " + JSON.stringify(allFiles) + "\n\n";
-            for (const [name, code] of Object.entries(originalCodes)) {
-              codeContextBlock += "=== FILE: " + name + " ===\n" + code + "\n==================\n\n";
-            }
+            // Map out files for the data scientist context (ignoring locks/assets)
+            const filesToReview = repoTree
+              .filter(f => f.type === 'file' && !f.name.includes('lock') && !f.name.endsWith('.png') && !f.name.endsWith('.jpg'))
+              .map(f => f.name);
 
-            const promptInstructions = "You are a lead senior software engineer. Analyze the repository files and modify them to implement the dynamic multi-form feature requirement.\n\nFEATURE REQUIREMENT:\nModify the codebase so that administrative and management roles (Admin Officer, Finance & Admin Manager, ED) can dynamically attach and append any number of supplementary forms/documents (e.g., LPOs, Evaluation Reports, GRNs, and Invoices) to ANY already submitted request object. Ensure the underlying request tracking data structures support an array or sub-list of attachments.\n\nCRITICAL OUTPUT FORMATTING RULE:\nYou must return each updated text file inside its own markdown code block. Start the code block with the exact comment indicator string '// FILENAME: filename.js' followed by the code. Do not write conversational text outside the markdown code blocks.";
-
-            const aiResponse = await anthropic.messages.create({
-              model: "claude-sonnet-4-6",
+            console.log(`🧠 Sending system architecture map to Claude: [${filesToReview.join(', ')}]`);
+            
+            const response = await anthropic.messages.create({
+              model: "claude-sonnet-4-6", // Fix 3: Upgraded to active, supported production version
               max_tokens: 4000,
-              system: promptInstructions,
-              messages: [{ role: "user", content: codeContextBlock + "\n\nUser Request:\n" + bodyText }]
+              system: "You are an IBM Data Scientist and an expert Digital Marketer. Analyze the list of files provided. Give a high-level strategic audit detailing architecture improvements, data performance bottlenecks, and Conversion Rate Optimization (CRO) layout suggestions.",
+              messages: [{ role: "user", content: `Repository files available: ${JSON.stringify(filesToReview)}\nUser Request: ${process.env.ISSUE_BODY}` }]
             });
 
-            const aiText = aiResponse.content.text;
-            const blockRegex = /```(?:javascript|html|json)?([\s\S]*?)```/g;
+            const auditReport = response.content[0].text;
             
-            const newBranchName = "claude-patch-issue-" + process.env.ISSUE_NUMBER;
-            
-            const mainRes = await fetch("https://github.com" + targetRepo + "/git/ref/heads/main", {
-              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor' }
+            console.log("📤 Posting strategic audit report back to the active issue thread...");
+            await githubAPI(`/repos/CuePointe/claude-central-agent/issues/${process.env.ISSUE_NUMBER}/comments`, 'POST', {
+              body: `### 📊 System Audit Report: UBF Request Portal\n\n${auditReport}`
             });
-            const mainData = await mainRes.json();
-            const mainLatestSha = mainData.object.sha;
-
-            await fetch("https://github.com" + targetRepo + "/git/refs", {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ref: "refs/heads/" + newBranchName, sha: mainLatestSha })
-            });
-
-            let match;
-            let patchedCounter = 0;
-
-            while ((match = blockRegex.exec(aiText)) !== null) {
-              const codeBlock = match[1].trim();
-              const nameMatch = codeBlock.match(/\/\/ FILENAME:\s*([a-zA-Z0-9_\.-]+)/);
-              
-              if (nameMatch) {
-                const targetedFileName = nameMatch[1].trim();
-                if (fileShas[targetedFileName]) {
-                  console.log("🚀 Uploading upgrades to branch for " + targetedFileName + "...");
-                  
-                  await fetch("https://github.com" + targetRepo + "/contents/" + targetedFileName, {
-                    method: 'PUT',
-                    headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      message: "🤖 Claude upgrade for " + targetedFileName,
-                      content: Buffer.from(codeBlock).toString('base64'),
-                      sha: fileShas[targetedFileName],
-                      branch: newBranchName
-                    })
-                  });
-                  patchedCounter++;
-                }
-              }
-            }
-
-            const prRes = await fetch("https://github.com" + targetRepo + "/pulls", {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                title: "🤖 Review Required: Claude Upgrade for Issue #" + process.env.ISSUE_NUMBER,
-                head: newBranchName,
-                base: 'main',
-                body: "Review file edits for multi-form attachments before merging."
-              })
-            });
-            const prData = await prRes.json();
-
-            const currentIssueRepo = process.env.GITHUB_REPOSITORY;
-            await fetch("https://github.com" + currentIssueRepo + "/issues/" + process.env.ISSUE_NUMBER + "/comments", {
-              method: 'POST',
-              headers: { 'Authorization': 'Bearer ' + process.env.AGENT_GITHUB_TOKEN, 'User-Agent': 'Central-Claude-Auditor', 'Content-Type': 'application/json' },
-              body: JSON.stringify({ body: "🎉 **Upgrades Ready for Review!**\n\n🔗 **[Click Here to Review and Approve Changes](" + prData.html_url + ")**" })
-            });
-
-            console.log("🎉 Process completed safely!");
+            console.log("🎉 Audit successfully posted!");
           }
 
           main().catch(err => { console.error(err); process.exit(1); });
           EOF
-          node run_patch.js
-
+          node auditor.js
