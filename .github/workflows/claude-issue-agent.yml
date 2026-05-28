@@ -1,10 +1,10 @@
-name: Global Repository Analyzer
+name: Global Repository Analyzer & Patcher
 on:
   issues:
     types: [opened]
 
 jobs:
-  analyze-codebase:
+  analyze-and-patch:
     if: contains(github.event.issue.title, 'Audit') || contains(github.event.issue.body, '@claude')
     runs-on: ubuntu-latest
     steps:
@@ -21,7 +21,7 @@ jobs:
           npm init -y
           npm install @anthropic-ai/sdk
 
-      - name: Run Global Audit Engine
+      - name: Run Global Audit & Auto-Patch Engine
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AGENT_GITHUB_TOKEN: ${{ secrets.REPOS_PAT }}
@@ -29,7 +29,7 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          cat << 'EOF' > auditor.js
+          cat << 'EOF' > patcher.js
           const { Anthropic } = require('@anthropic-ai/sdk');
           const https = require('https');
           const anthropic = new Anthropic();
@@ -37,12 +37,12 @@ jobs:
           async function githubAPI(endpoint, method = 'GET', body = null) {
             return new Promise((resolve, reject) => {
               const options = {
-                hostname: 'api.github.com', // Fix 1: Changed from '://github.com' to proper REST API subdomain
+                hostname: '://github.com',
                 path: endpoint,
                 method: method,
                 headers: {
                   'User-Agent': 'Central-Claude-Auditor',
-                  'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`, // Fix 2: Upgraded from 'token' to modern Bearer protocol
+                  'Authorization': `Bearer ${process.env.AGENT_GITHUB_TOKEN}`,
                   'Accept': 'application/vnd.github.v3+json',
                   'Content-Type': 'application/json'
                 }
@@ -63,36 +63,55 @@ jobs:
           }
 
           async function main() {
-            console.log("📁 Fetching root repository structure...");
-            const repoTree = await githubAPI(`/repos/${process.env.TARGET_REPO}/contents`);
+            const targetFile = 'form-renderer.js'; // The core heavy module we want Claude to patch
+            console.log(`📥 Fetching current ${targetFile} content...`);
             
-            if (!Array.isArray(repoTree)) {
-              throw new Error("Failed to fetch repository contents. Check your REPOS_PAT token permissions.");
-            }
+            const fileData = await githubAPI(`/repos/${process.env.TARGET_REPO}/contents/${targetFile}`);
+            if (!fileData.content) throw new Error(`Could not load ${targetFile}`);
+            
+            const currentCode = Buffer.from(fileData.content, 'base64').toString('utf8');
+            const fileSha = fileData.sha; // Required by GitHub to update an existing file
 
-            // Map out files for the data scientist context (ignoring locks/assets)
-            const filesToReview = repoTree
-              .filter(f => f.type === 'file' && !f.name.includes('lock') && !f.name.endsWith('.png') && !f.name.endsWith('.jpg'))
-              .map(f => f.name);
-
-            console.log(`🧠 Sending system architecture map to Claude: [${filesToReview.join(', ')}]`);
+            console.log("🧠 Requesting optimization and direct code rewrite from Claude...");
             
             const response = await anthropic.messages.create({
-              model: "claude-sonnet-4-6", // Fix 3: Upgraded to active, supported production version
+              model: "claude-sonnet-4-6",
               max_tokens: 4000,
-              system: "You are an IBM Data Scientist and an expert Digital Marketer. Analyze the list of files provided. Give a high-level strategic audit detailing architecture improvements, data performance bottlenecks, and Conversion Rate Optimization (CRO) layout suggestions.",
-              messages: [{ role: "user", content: `Repository files available: ${JSON.stringify(filesToReview)}\nUser Request: ${process.env.ISSUE_BODY}` }]
+              system: `You are an expert software engineer. Analyze the provided file and rewrite it completely to fix performance bottlenecks, bugs, or clean up structure based on the user request. 
+              CRITICAL: Output ONLY the raw, updated JavaScript code inside a single markdown code block starting with \`\`\`javascript and ending with \`\`\`. Do not include conversational text outside the code block.`,
+              messages: [{ role: "user", content: `Current Code of ${targetFile}:\n\`\`\`javascript\n${currentCode}\n\`\`\`\n\nUser Request/Audit Context: ${process.env.ISSUE_BODY}` }]
             });
 
-            const auditReport = response.content[0].text;
+            const rawText = response.content[0].text;
             
-            console.log("📤 Posting strategic audit report back to the active issue thread...");
+            // Extract the clean JavaScript code out of Claude's markdown wrapper
+            const regex = /```javascript([\s\S]*?)```/;
+            const match = rawText.match(regex);
+            
+            if (!match || !match[1]) {
+              throw new Error("Claude did not return a clean code block. Aborting push to prevent corruption.");
+            }
+            
+            const upgradedCode = match[1].trim();
+
+            console.log(`📤 Pushing optimized ${targetFile} directly back to the repository...`);
+            
+            const updatedFilePayload = {
+              message: `🤖 Auto-patcher optimization for ${targetFile} (Issue #${process.env.ISSUE_NUMBER})`,
+              content: Buffer.from(upgradedCode).toString('base64'), // Convert raw text back to base64
+              sha: fileSha // Verifies we are modifying the correct version
+            };
+
+            await githubAPI(`/repos/${process.env.TARGET_REPO}/contents/${targetFile}`, 'PUT', updatedFilePayload);
+            
+            console.log("📤 Logging completion message back to the GitHub issue thread...");
             await githubAPI(`/repos/CuePointe/claude-central-agent/issues/${process.env.ISSUE_NUMBER}/comments`, 'POST', {
-              body: `### 📊 System Audit Report: UBF Request Portal\n\n${auditReport}`
+              body: `🎉 **Success!** Claude analyzed \`${targetFile}\`, refactored the processing algorithms, and committed the changes directly back to your codebase.`
             });
-            console.log("🎉 Audit successfully posted!");
+            
+            console.log("🎉 Process finished seamlessly!");
           }
 
           main().catch(err => { console.error(err); process.exit(1); });
           EOF
-          node auditor.js
+          node patcher.js
