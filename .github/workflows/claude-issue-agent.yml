@@ -74,7 +74,7 @@ jobs:
             console.log(`🧠 Sending system architecture map to Claude: [${filesToReview.join(', ')}]`);
             
             const response = await anthropic.messages.create({
-              model: "claude-3-5-sonnet-20241022",
+              model: "claude-sonnet-4-6",
               max_tokens: 4000,
               system: "You are an IBM Data Scientist and an expert Digital Marketer. Analyze the list of files provided. Give a high-level strategic audit detailing architecture improvements, data performance bottlenecks, and Conversion Rate Optimization (CRO) layout suggestions.",
               messages: [{ role: "user", content: `Repository files available: ${JSON.stringify(filesToReview)}\nUser Request: ${process.env.ISSUE_BODY}` }]
