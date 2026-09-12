@@ -2,15 +2,17 @@ from __future__ import annotations
 import os, sqlite3, uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.getenv("GRIOT_DB_PATH", ROOT / "griot.db"))
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 PROJECTS = {
  "speakpower":"Brand storytelling, communications, market development",
  "tonninyira":"Marketplace product, software, growth and operations",
@@ -32,7 +34,8 @@ class MemoryRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     action_id: str; approved: bool
 
-app = FastAPI(title="GRIOT OS", version="0.1.0")
+app = FastAPI(title="GRIOT OS", version="0.1.1")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def conn():
@@ -73,7 +76,9 @@ async def model(prompt_text):
     async with httpx.AsyncClient(timeout=90) as client:
         r=await client.post(base+"/chat/completions",headers={"Authorization":"Bearer "+key},json=payload)
         if r.status_code>=400: raise HTTPException(r.status_code,r.text[:1000])
-        return r.json()["choices"]["message"]["content"] if isinstance(r.json().get("choices"),dict) else r.json()["choices"][0]["message"]["content"]
+        data=r.json(); choices=data.get("choices",[])
+        if not choices: raise HTTPException(502,"Model returned no choices")
+        return choices[0]["message"]["content"]
 
 @app.get("/health")
 def health(): conn().close(); return {"status":"ok","agent":"GRIOT OS","version":app.version}
@@ -100,4 +105,4 @@ def approval(req: ApprovalRequest):
     if not row: c.close(); raise HTTPException(404,"Action not found")
     s="approved" if req.approved else "rejected"; c.execute("update actions set status=? where id=?",(s,req.action_id)); c.commit(); c.close(); return {"action_id":req.action_id,"status":s}
 @app.get("/")
-def root(): return {"name":"GRIOT OS","docs":"/docs","principle":"Never confuse activity with progress."}
+def root(): return FileResponse(STATIC_DIR / "index.html")
