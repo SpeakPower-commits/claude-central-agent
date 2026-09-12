@@ -2,7 +2,7 @@
 
 **Strategic Intelligence & Execution Agent for Thomas's project portfolio**
 
-GRIOT OS is the successor direction of this repository: a personal strategic operating system that combines brand storytelling, market development, data science, software engineering and operations.
+GRIOT OS is a personal strategic operating system that combines brand storytelling, market development, data science, software engineering and operations.
 
 It is designed to become a **better, more systematic version of your professional skill set** — not a generic chatbot.
 
@@ -12,7 +12,7 @@ It is designed to become a **better, more systematic version of your professiona
 
 ## What GRIOT OS is for
 
-GRIOT OS helps you move from:
+GRIOT helps move work from:
 
 **idea → evidence → strategy → decision → execution → measurement → learning**
 
@@ -29,7 +29,7 @@ It is intended to work across:
 
 ## The strategic brain
 
-Every important request should pass through this decision protocol:
+Every important request should pass through:
 
 1. **UNDERSTAND** — What exactly is happening?
 2. **CONTEXT** — Which project, audience and objective matter?
@@ -41,16 +41,14 @@ Every important request should pass through this decision protocol:
 8. **MEASURE** — Which KPI tells us whether it worked?
 9. **LEARN** — What should be remembered for next time?
 
-GRIOT also distinguishes **FACT, INFERENCE, HYPOTHESIS, RECOMMENDATION and UNKNOWN** so that assumptions are not quietly presented as evidence.
+GRIOT distinguishes **FACT, INFERENCE, HYPOTHESIS, RECOMMENDATION and UNKNOWN** so assumptions are not quietly presented as evidence.
 
 ## Specialist agents
-
-GRIOT routes work to specialist capabilities when needed:
 
 - `StoryAgent` — storytelling, copy, narratives, campaigns
 - `MarketAgent` — market research, competition, segmentation and opportunities
 - `DataAgent` — SQL, Python, metrics, statistics and dashboards
-- `DevAgent` — code, GitHub, Supabase, APIs, architecture and debugging
+- `DevAgent` — code, GitHub, APIs, architecture and debugging
 - `ResearchAgent` — evidence gathering and web research
 - `GrowthAgent` — acquisition, retention, partnerships and monetization
 - `OperationsAgent` — workflows, SOPs and automation
@@ -59,20 +57,39 @@ GRIOT routes work to specialist capabilities when needed:
 
 `StrategyAgent` is the chief thinker. The specialists provide depth.
 
-## Memory
+## Where you actually use GRIOT
 
-The first version supports persistent local memory and decision logs. The target production architecture uses a dedicated Supabase/Postgres memory layer.
+**The GitHub repository is the source code. It is not the app interface.**
 
-Memory is organized around:
+The intended user flow is:
 
-- identity and professional principles
-- project knowledge
-- decisions and why they were made
-- brand knowledge
-- technical architecture
-- market intelligence
-- experiments and KPIs
-- cross-project lessons
+```text
+You
+  ↓
+GRIOT Web App
+  ↓
+Strategic Orchestrator
+  ↓
+Memory + Specialist Agents
+  ↓
+Approved Tools / Project Systems
+```
+
+The current build includes a real browser interface in `griot-os/public/` plus the FastAPI backend.
+
+### Local use
+
+Run the backend locally and open:
+
+```text
+http://127.0.0.1:8000
+```
+
+### Production use
+
+The recommended production deployment is **Vercel + Postgres (Neon through the Vercel Marketplace)**, with Cloudflare used for DNS/domain management if desired.
+
+Vercel supports FastAPI directly on its Python runtime and can serve the static web interface through `public/`. Its Marketplace supports managed Postgres providers such as Neon. See `docs/GRIOT_OS_DEPLOYMENT.md` for the exact setup.
 
 ## When you should use GRIOT
 
@@ -81,34 +98,29 @@ Use GRIOT when a question requires **judgment, evidence, strategy or coordinatio
 Good examples:
 
 ```text
-"Tonninyira registrations are growing but orders are not. Diagnose the likely bottleneck."
+Project: Tonninyira
+Registrations are growing but orders are not. Diagnose the likely bottleneck.
 
-"Turn this SpeakPower idea into a campaign based on what the audience is feeling and what the market is saying."
+Project: SpeakPower
+Turn this idea into a campaign based on what the audience is feeling and what the market is saying.
 
-"Review this GitHub change from a product, engineering and business perspective before I merge it."
+Project: CuePointe
+Compare these growth ideas and recommend the one with the strongest strategic upside.
 
-"Compare these three CuePointe growth ideas and recommend the one with the strongest strategic upside."
+Project: UBF
+Analyze this workflow and identify where AI could reduce repetitive work without creating operational risk.
 
-"Analyze the UBF workflow and identify where AI could reduce repetitive work without creating operational risk."
+Portfolio
+Look across my projects for reusable strategic patterns and conflicts in priorities.
 ```
 
-## When NOT to use GRIOT
-
-Do not use it merely to generate busywork that has no clear outcome.
-
-For a simple one-off task — such as fixing a typo or writing a two-line message — a normal assistant or direct tool is usually faster.
-
-The question to ask is:
+For a tiny one-off task, a normal assistant or direct tool is usually faster. The question is:
 
 > **Does this task need strategic judgment, project context, evidence, analysis or coordinated execution?**
 
-If the answer is yes, GRIOT is probably the right tool.
+## How to prompt GRIOT
 
-## How to use it
-
-### 1. Tell it the project
-
-Always name the project when the context matters:
+### 1. Name the project
 
 ```text
 Project: Tonninyira
@@ -119,29 +131,27 @@ Project: Tonninyira
 Weak:
 
 ```text
-"Write a marketing post."
+Write a marketing post.
 ```
 
 Better:
 
 ```text
-"Tonninyira vendors are signing up but many are not uploading their first products. Diagnose why and propose a retention campaign."
+Tonninyira vendors are signing up but many are not uploading their first products. Diagnose why and propose a retention campaign.
 ```
 
-### 3. Ask it to show its evidence and assumptions
+### 3. Force evidence discipline
 
-Useful prompts:
+Useful requests:
 
 ```text
-"Separate facts from assumptions."
-"What evidence would change your recommendation?"
-"Challenge my idea."
-"What is the real bottleneck?"
+Separate facts from assumptions.
+What evidence would change your recommendation?
+Challenge my idea.
+What is the real bottleneck?
 ```
 
-### 4. Decide the operating level
-
-GRIOT is designed around increasing autonomy:
+### 4. Choose the operating level
 
 | Level | Use |
 |---|---|
@@ -151,65 +161,37 @@ GRIOT is designed around increasing autonomy:
 | **Execute with approval** | Make external changes after your approval |
 | **Controlled autonomy** | Run pre-approved, reversible workflows |
 
-Keep high-risk actions under human approval, especially money movement, destructive database operations, production deployments, contracts and public statements.
+High-risk actions remain behind approval gates.
 
-### 5. End with a measurement question
+### 5. Finish with measurement
 
 Ask:
 
 ```text
-"What should we measure after doing this?"
+What should we measure after doing this?
 ```
 
-That prevents the agent from turning activity into false progress.
+## Memory
 
-## Useful operating commands
+GRIOT supports local SQLite memory for development and **Postgres memory for production**.
 
-The intended interface supports commands such as:
+Production memory is organized around:
 
-- `/think` — deep strategic analysis
-- `/research` — gather evidence
-- `/analyze` — inspect data and metrics
-- `/build` — plan or implement software changes
-- `/campaign` — develop a brand/market campaign
-- `/audit` — find weaknesses and risks
-- `/measure` — review KPIs and outcomes
-- `/decide` — compare options and recommend one
-- `/learn` — store validated lessons
-- `/portfolio` — look for useful patterns across projects
+- identity and professional principles
+- project knowledge
+- decisions and why they were made
+- brand knowledge
+- technical architecture
+- market intelligence
+- experiments and KPIs
+- cross-project lessons
 
-## Example workflow
+The application automatically uses Postgres when `DATABASE_URL` is configured and falls back to SQLite locally.
 
-```text
-YOU:
-Project: SpeakPower
-Analyze the last 30 days of performance. Identify the strongest audience signal,
-compare it with current market conversations, and propose the next campaign.
-
-GRIOT:
-1. Retrieves project memory and available performance data.
-2. Separates facts, inferences and unknowns.
-3. Researches relevant market signals.
-4. Diagnoses the strongest opportunity.
-5. Recommends a campaign and explains why.
-6. Defines KPIs.
-7. Prepares implementation assets.
-8. Requests approval before publishing or changing external systems.
-9. Stores the decision and later outcome.
-```
-
-## Running the current prototype
-
-The v0.1 backend is a FastAPI service.
-
-### Requirements
-
-- Python 3.11+
-- an OpenAI-compatible API key for full model reasoning
-
-### Setup
+## Running locally
 
 ```bash
+cd griot-os
 python -m venv .venv
 
 # Windows
@@ -222,15 +204,16 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Set the model credentials in `.env`:
+Configure:
 
 ```env
 OPENAI_API_KEY=your_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=your_model_here
+DATABASE_URL=
 ```
 
-Then run:
+Then:
 
 ```bash
 uvicorn app.main:app --reload
@@ -239,39 +222,49 @@ uvicorn app.main:app --reload
 Open:
 
 ```text
+http://127.0.0.1:8000
+```
+
+API documentation:
+
+```text
 http://127.0.0.1:8000/docs
 ```
 
-The service exposes project routing, agent routing, chat, memory and approval endpoints.
+## Production deployment
 
-## Production direction
-
-The prototype deliberately keeps production mutations disabled. The intended production setup is:
+The production path is:
 
 ```text
-GRIOT OS
-   |
-   +-- Strategy / Orchestrator
-   |
-   +-- Specialist Agents
-   |
-   +-- Dedicated Supabase/Postgres Memory
-   |
-   +-- GitHub
-   +-- Tonninyira Supabase
-   +-- UBF/FoB systems
-   +-- Canva
-   +-- Web research
-   +-- Analytics
-   +-- Automation
+GitHub
+   ↓
+Vercel
+   ├── FastAPI backend
+   └── GRIOT web interface
+        ↓
+Neon Postgres
+        ↓
+GRIOT memory / decisions / KPIs
+        ↓
+GitHub + project APIs + research + future tools
 ```
 
-Each external system should be connected through explicit, least-privilege tools and approval gates.
+Cloudflare can sit in front as the DNS and domain layer. There is no requirement for Supabase in this architecture.
+
+See:
+
+**`docs/GRIOT_OS_DEPLOYMENT.md`**
+
+for the deployment checklist and environment variables.
+
+## Safety and approvals
+
+The agent is deliberately designed to challenge assumptions and request approval before risky external actions. Do not give it destructive database permissions, unrestricted production credentials or financial authority.
 
 ## Repository status
 
-This branch contains the GRIOT OS v0.1 bootstrap. It is intentionally isolated from `main` until reviewed.
+The GRIOT OS implementation lives on the `griot-os-v1` branch while it is being reviewed. It includes the strategic brain, specialist routing, local/production memory support, browser interface, FastAPI API and deployment scaffolding.
 
-The long-term goal is not to create an AI that simply answers Thomas's questions.
+The long-term goal is not an AI that simply answers Thomas's questions.
 
-The goal is to create an AI that can **understand the portfolio, think strategically, work with evidence, build solutions, learn from outcomes and safely execute approved operations.**
+The goal is an AI that can **understand the portfolio, think strategically, work with evidence, build solutions, learn from outcomes and safely execute approved operations.**
