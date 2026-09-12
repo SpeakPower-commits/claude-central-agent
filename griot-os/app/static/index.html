@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GRIOT OS</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">GRIOT <span>OS</span></div>
+      <p class="tagline">Strategic intelligence & execution</p>
+      <label for="project">Project</label>
+      <select id="project">
+        <option value="speakpower">SpeakPower</option>
+        <option value="tonninyira">Tonninyira</option>
+        <option value="cuepointe">CuePointe</option>
+        <option value="ubf">UBF</option>
+        <option value="fob">FoB</option>
+        <option value="other">Portfolio / Other</option>
+      </select>
+      <div class="status-card">
+        <span class="dot"></span>
+        <div>
+          <strong>GRIOT online</strong>
+          <small>Local app mode</small>
+        </div>
+      </div>
+      <div class="principle">“Never confuse activity with progress.”</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1>What are we solving?</h1>
+          <p>Give GRIOT the situation. It will route the right strategic specialists.</p>
+        </div>
+        <a href="/docs" target="_blank">API docs</a>
+      </header>
+
+      <section id="chat" class="chat"></section>
+
+      <div class="composer">
+        <textarea id="message" rows="3" placeholder="e.g. Audit Tonninyira and tell me our biggest growth constraint."></textarea>
+        <div class="composer-row">
+          <div class="quick-actions">
+            <button data-prompt="Challenge my current strategy. What am I missing?">Challenge</button>
+            <button data-prompt="Give me a data-backed diagnosis before recommending action.">Diagnose</button>
+            <button data-prompt="Turn this into a practical next-step plan.">Plan</button>
+          </div>
+          <button id="send" class="send">Ask GRIOT</button>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
