@@ -1,270 +1,352 @@
+<div align="center">
+
+<img src="docs/assets/speakpower-logo.png" alt="SpeakPower" width="140" />
+
 # GRIOT OS
 
-**Strategic Intelligence & Execution Agent for Thomas's project portfolio**
+**Strategic intelligence & execution agent for a multi-venture portfolio**
 
-GRIOT OS is a personal strategic operating system that combines brand storytelling, market development, data science, software engineering and operations.
+*Think like a strategist. Validate like a data scientist. Build like a software engineer.*<br/>
+*Communicate like a storyteller. Operate like an owner.*
 
-It is designed to become a **better, more systematic version of your professional skill set** — not a generic chatbot.
+<br/>
 
-> **Think like a strategist. Validate like a data scientist. Build like a software engineer. Communicate like a storyteller. Operate like an owner.**
->
-> **Never confuse activity with progress.**
+![Python](https://img.shields.io/badge/Python-3.11%2B-283142?style=for-the-badge&logo=python&logoColor=C9A05C)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.117-283142?style=for-the-badge&logo=fastapi&logoColor=C9A05C)
+![Postgres](https://img.shields.io/badge/Postgres-Neon-283142?style=for-the-badge&logo=postgresql&logoColor=C9A05C)
+![Docker](https://img.shields.io/badge/Docker-ready-283142?style=for-the-badge&logo=docker&logoColor=C9A05C)
+<br/>
+![Status](https://img.shields.io/badge/status-alpha-C9A05C?style=flat-square)
+![Branch](https://img.shields.io/badge/branch-griot--os--v1-283142?style=flat-square)
+![License](https://img.shields.io/badge/license-unlicensed-lightgrey?style=flat-square)
 
-## What GRIOT OS is for
+</div>
 
-GRIOT helps move work from:
+---
 
-**idea → evidence → strategy → decision → execution → measurement → learning**
+## Table of contents
 
-It is intended to work across:
+- [Why this exists](#why-this-exists)
+- [System architecture](#system-architecture)
+- [Request lifecycle](#request-lifecycle)
+- [The decision protocol](#the-decision-protocol)
+- [Data model](#data-model)
+- [Implementation status](#implementation-status)
+- [Quickstart](#quickstart)
+- [API surface](#api-surface)
+- [Deployment topology](#deployment-topology)
+- [Security posture](#security-posture)
+- [Roadmap](#roadmap)
 
-| Project | GRIOT role |
-|---|---|
-| **SpeakPower** | Brand storytelling, communications, positioning and market development |
-| **Tonninyira** | Product strategy, marketplace analysis, software, growth and operations |
-| **CuePointe** | Community growth, tournament operations, brand and partnership strategy |
-| **UBF** | Conservation communications, AI/process automation and organizational operations |
-| **FoB** | Biodiversity/community ecosystem, operations and strategic development |
-| **Other ventures** | Business analysis, brand strategy, research and project operations |
+---
 
-## The strategic brain
+## Why this exists
 
-Every important request should pass through:
+Generic assistants answer questions. They do not hold **portfolio context**, they do not
+**separate evidence from assumption**, and they forget every decision the moment the tab closes.
 
-1. **UNDERSTAND** — What exactly is happening?
-2. **CONTEXT** — Which project, audience and objective matter?
-3. **EVIDENCE** — What do we actually know?
-4. **DIAGNOSE** — What is causing the problem?
-5. **OPTIONS** — What realistic choices exist?
-6. **RECOMMEND** — Which option is strongest and why?
-7. **EXECUTE** — What can safely be done?
-8. **MEASURE** — Which KPI tells us whether it worked?
-9. **LEARN** — What should be remembered for next time?
+GRIOT OS is an attempt to fix all three for one specific operator working across six ventures —
+SpeakPower, Tonninyira, CuePointe, UBF, FoB and adjacent work.
 
-GRIOT distinguishes **FACT, INFERENCE, HYPOTHESIS, RECOMMENDATION and UNKNOWN** so assumptions are not quietly presented as evidence.
+The design bet is that the valuable part of an AI operating system is not the chat box.
+It is the **memory**, the **evidence discipline**, and the **decision log**.
 
-## Specialist agents
+> Never confuse activity with progress.
 
-- `StoryAgent` — storytelling, copy, narratives, campaigns
-- `MarketAgent` — market research, competition, segmentation and opportunities
-- `DataAgent` — SQL, Python, metrics, statistics and dashboards
-- `DevAgent` — code, GitHub, APIs, architecture and debugging
-- `ResearchAgent` — evidence gathering and web research
-- `GrowthAgent` — acquisition, retention, partnerships and monetization
-- `OperationsAgent` — workflows, SOPs and automation
-- `BrandAgent` — brand consistency across channels and assets
-- `StrategyAgent` — synthesizes the work and makes the final strategic recommendation
+---
 
-`StrategyAgent` is the chief thinker. The specialists provide depth.
+## System architecture
 
-## Where you actually use GRIOT
+Two independent subsystems share this repository. They share no code.
 
-**The GitHub repository is the source code. It is not the app interface.**
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#283142','primaryTextColor':'#ffffff','primaryBorderColor':'#C9A05C','lineColor':'#C9A05C','secondaryColor':'#3a4557','tertiaryColor':'#f4f4f5','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
+flowchart TB
+    subgraph client["🖥️  Client"]
+        UI["Browser UI<br/><code>app/static/</code>"]
+    end
 
-The intended user flow is:
+    subgraph api["⚙️  GRIOT OS — FastAPI"]
+        direction TB
+        R["Router<br/><code>route()</code>"]
+        P["Prompt builder<br/><code>build_prompt()</code>"]
+        M["Model adapter<br/><code>model()</code>"]
+        R --> P --> M
+    end
 
-```text
-You
-  ↓
-GRIOT Web App
-  ↓
-Strategic Orchestrator
-  ↓
-Memory + Specialist Agents
-  ↓
-Approved Tools / Project Systems
+    subgraph store["🗄️  Persistence"]
+        direction LR
+        SQ[("SQLite<br/><i>local</i>")]
+        PG[("Postgres<br/><i>production</i>")]
+    end
+
+    LLM["🧠 LLM provider<br/>OpenAI-compatible"]
+
+    UI -->|"POST /chat"| R
+    P <-->|"read memories"| store
+    M -->|"write decisions"| store
+    M <-->|"HTTPS"| LLM
+    M -->|"answer + agents[]"| UI
+
+    style client fill:#f4f4f5,stroke:#283142,stroke-width:2px
+    style api fill:#283142,stroke:#C9A05C,stroke-width:3px,color:#fff
+    style store fill:#f4f4f5,stroke:#283142,stroke-width:2px
+    style LLM fill:#C9A05C,stroke:#283142,stroke-width:2px,color:#283142
 ```
 
-The current build includes a real browser interface in `griot-os/public/` plus the FastAPI backend.
+The persistence layer is selected at runtime: `DATABASE_URL` present → Postgres, otherwise SQLite.
+The application code is storage-agnostic above that boundary.
 
-### Local use
+---
 
-Run the backend locally and open:
+## Request lifecycle
 
-```text
-http://127.0.0.1:8000
+What actually happens on a single `POST /chat`:
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#283142','primaryTextColor':'#ffffff','primaryBorderColor':'#C9A05C','lineColor':'#283142','signalColor':'#283142','signalTextColor':'#283142','actorBkg':'#283142','actorTextColor':'#ffffff','actorBorder':'#C9A05C','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
+sequenceDiagram
+    autonumber
+    participant U as Browser
+    participant A as FastAPI
+    participant D as Datastore
+    participant L as LLM
+
+    U->>A: POST /chat {message, project}
+    A->>A: validate project slug
+    A->>A: route(message) → specialist labels
+    A->>D: SELECT memories WHERE project IN (slug,'global')
+    D-->>A: prior context (n rows)
+    A->>A: build_prompt(req, memories, agents)
+    A->>L: chat/completions
+    L-->>A: strategic analysis
+    A->>D: INSERT INTO decisions (…, 'analyzed')
+    A-->>U: {decision_id, agents[], memory_used, answer}
 ```
 
-### Production use
+Every request produces a **durable `decision_id`**. Analysis is not ephemeral —
+it is an auditable record keyed to a project.
 
-The recommended production deployment is **Vercel + Postgres (Neon through the Vercel Marketplace)**, with Cloudflare used for DNS/domain management if desired.
+---
 
-Vercel supports FastAPI directly on its Python runtime and can serve the static web interface through `public/`. Its Marketplace supports managed Postgres providers such as Neon. See `docs/GRIOT_OS_DEPLOYMENT.md` for the exact setup.
+## The decision protocol
 
-## When you should use GRIOT
+Requests are reasoned through nine stages rather than answered directly:
 
-Use GRIOT when a question requires **judgment, evidence, strategy or coordination across several skills**.
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#283142','primaryTextColor':'#ffffff','primaryBorderColor':'#C9A05C','lineColor':'#C9A05C','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
+flowchart LR
+    U(["UNDERSTAND"]) --> C(["CONTEXT"]) --> E(["EVIDENCE"]) --> D(["DIAGNOSE"])
+    D --> O(["OPTIONS"]) --> R(["RECOMMEND"]) --> X(["EXECUTE"])
+    X --> M(["MEASURE"]) --> L(["LEARN"])
+    L -.->|"feeds memory"| E
 
-Good examples:
-
-```text
-Project: Tonninyira
-Registrations are growing but orders are not. Diagnose the likely bottleneck.
-
-Project: SpeakPower
-Turn this idea into a campaign based on what the audience is feeling and what the market is saying.
-
-Project: CuePointe
-Compare these growth ideas and recommend the one with the strongest strategic upside.
-
-Project: UBF
-Analyze this workflow and identify where AI could reduce repetitive work without creating operational risk.
-
-Portfolio
-Look across my projects for reusable strategic patterns and conflicts in priorities.
+    style U fill:#283142,color:#fff,stroke:#C9A05C
+    style C fill:#283142,color:#fff,stroke:#C9A05C
+    style E fill:#283142,color:#fff,stroke:#C9A05C
+    style D fill:#283142,color:#fff,stroke:#C9A05C
+    style O fill:#283142,color:#fff,stroke:#C9A05C
+    style R fill:#C9A05C,color:#283142,stroke:#283142,stroke-width:3px
+    style X fill:#283142,color:#fff,stroke:#C9A05C
+    style M fill:#283142,color:#fff,stroke:#C9A05C
+    style L fill:#C9A05C,color:#283142,stroke:#283142,stroke-width:3px
 ```
 
-For a tiny one-off task, a normal assistant or direct tool is usually faster. The question is:
+Claims are tagged by epistemic status so assumptions never masquerade as evidence:
 
-> **Does this task need strategic judgment, project context, evidence, analysis or coordinated execution?**
+| Tag | Meaning |
+|:--|:--|
+| `FACT` | Verifiable, sourced |
+| `INFERENCE` | Derived from facts, logically supported |
+| `HYPOTHESIS` | Plausible, untested |
+| `RECOMMENDATION` | A judgment call, owned as such |
+| `UNKNOWN` | Explicitly not known — stated, not skipped |
 
-## How to prompt GRIOT
+---
 
-### 1. Name the project
+## Data model
 
-```text
-Project: Tonninyira
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryBorderColor':'#C9A05C','lineColor':'#283142','textColor':'#283142','fontFamily':'ui-monospace, monospace'}}}%%
+erDiagram
+    MEMORIES {
+        text id PK
+        text project
+        text kind
+        text title
+        text content
+        text confidence "fact|inference|hypothesis|recommendation|unknown"
+        text created_at
+    }
+    DECISIONS {
+        text id PK
+        text project
+        text request
+        text recommendation
+        text status "analyzed|executed"
+        text created_at
+    }
+    ACTIONS {
+        text id PK
+        text project
+        text action_type
+        text payload
+        text status "pending|approved|rejected"
+        text created_at
+    }
+    DECISIONS ||--o{ ACTIONS : "may propose"
+    MEMORIES }o--|| DECISIONS : "informs"
 ```
 
-### 2. State the problem, not only the task
+Schema of record is `SCHEMA_SQL` in [`griot-os/app/main.py`](griot-os/app/main.py).
+Identical DDL runs against both SQLite and Postgres.
 
-Weak:
+---
 
-```text
-Write a marketing post.
-```
+## Implementation status
 
-Better:
+Honest accounting. This is an alpha — the architecture above is the target, and not all of it is wired.
 
-```text
-Tonninyira vendors are signing up but many are not uploading their first products. Diagnose why and propose a retention campaign.
-```
+| Capability | Status | Notes |
+|:--|:--:|:--|
+| FastAPI service, health, OpenAPI | ✅ | Runs clean, `/docs` live |
+| Project-scoped routing | ✅ | Keyword classifier → specialist labels |
+| SQLite + Postgres dual backend | ✅ | Runtime-selected on `DATABASE_URL` |
+| Decision logging | ✅ | Every `/chat` persists a `decision_id` |
+| Browser UI | ✅ | Zero-dependency vanilla JS |
+| Memory read into prompt | ✅ | Manual writes via `POST /memory` |
+| Model reasoning | ⚠️ | Requires a valid `OPENAI_MODEL`; ships without one |
+| Automatic memory writes | ❌ | `LEARN` not yet persisted — see [Roadmap](#roadmap) |
+| Conversation history | ❌ | `/chat` is stateless single-shot |
+| Approval gate (`/approval`) | ❌ | Endpoint exists; no producer writes `actions` |
+| Operating modes | ❌ | `mode` accepted, not yet dispatched |
+| Tool use / web research | ❌ | No tool layer yet |
+| Auth | ❌ | **Do not deploy publicly.** See [Security](#security-posture) |
 
-### 3. Force evidence discipline
+Legend: ✅ shipped · ⚠️ partial · ❌ designed, not built
 
-Useful requests:
+---
 
-```text
-Separate facts from assumptions.
-What evidence would change your recommendation?
-Challenge my idea.
-What is the real bottleneck?
-```
-
-### 4. Choose the operating level
-
-| Level | Use |
-|---|---|
-| **Observe** | Read and inspect information |
-| **Analyze** | Diagnose and recommend |
-| **Draft** | Prepare code, content, SQL, designs or plans |
-| **Execute with approval** | Make external changes after your approval |
-| **Controlled autonomy** | Run pre-approved, reversible workflows |
-
-High-risk actions remain behind approval gates.
-
-### 5. Finish with measurement
-
-Ask:
-
-```text
-What should we measure after doing this?
-```
-
-## Memory
-
-GRIOT supports local SQLite memory for development and **Postgres memory for production**.
-
-Production memory is organized around:
-
-- identity and professional principles
-- project knowledge
-- decisions and why they were made
-- brand knowledge
-- technical architecture
-- market intelligence
-- experiments and KPIs
-- cross-project lessons
-
-The application automatically uses Postgres when `DATABASE_URL` is configured and falls back to SQLite locally.
-
-## Running locally
+## Quickstart
 
 ```bash
-cd griot-os
-python -m venv .venv
+git clone https://github.com/SpeakPower-commits/claude-central-agent.git
+cd claude-central-agent/griot-os
 
-# Windows
-.venv\\Scripts\\activate
-
-# macOS/Linux
-source .venv/bin/activate
-
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env
+
+cp .env.example .env    # then set OPENAI_API_KEY and a valid OPENAI_MODEL
+python3 -m uvicorn app.main:app --reload
 ```
 
-Configure:
+| Surface | URL |
+|:--|:--|
+| Web interface | http://127.0.0.1:8000 |
+| OpenAPI docs | http://127.0.0.1:8000/docs |
+| Health probe | http://127.0.0.1:8000/health |
 
-```env
-OPENAI_API_KEY=your_key_here
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=your_model_here
-DATABASE_URL=
-```
+> **Note** — without `OPENAI_API_KEY` the service still boots and exercises routing,
+> memory and persistence in *orchestration-only mode*. Useful for testing the pipeline
+> without spending tokens.
 
-Then:
+---
+
+## API surface
+
+| Method | Path | Purpose |
+|:--|:--|:--|
+| `GET` | `/health` | Liveness + active memory backend |
+| `GET` | `/projects` | Registered project slugs |
+| `GET` | `/agents` | Specialist roster |
+| `GET` | `/memories?project=` | Recent memory, project + global scope |
+| `POST` | `/memory` | Persist a memory with a confidence tag |
+| `POST` | `/chat` | Full decision-protocol pass |
+| `POST` | `/approval` | Resolve a pending action *(see status table)* |
 
 ```bash
-uvicorn app.main:app --reload
+curl -s -X POST localhost:8000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Registrations rise, orders flat. Diagnose the bottleneck.",
+       "project":"tonninyira"}' | jq
 ```
 
-Open:
+---
 
-```text
-http://127.0.0.1:8000
+## Deployment topology
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#283142','primaryTextColor':'#ffffff','primaryBorderColor':'#C9A05C','lineColor':'#C9A05C','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
+flowchart LR
+    GH["GitHub<br/><i>source of truth</i>"] -->|"push → build"| V["Vercel<br/><i>Python runtime</i>"]
+    CF["Cloudflare<br/><i>DNS</i>"] -.->|"CNAME"| V
+    V --> NEON[("Neon Postgres<br/><i>pooled</i>")]
+    V --> OAI["LLM provider"]
+
+    style GH fill:#283142,color:#fff,stroke:#C9A05C,stroke-width:2px
+    style V fill:#C9A05C,color:#283142,stroke:#283142,stroke-width:3px
+    style CF fill:#f4f4f5,color:#283142,stroke:#283142
+    style NEON fill:#283142,color:#fff,stroke:#C9A05C,stroke-width:2px
+    style OAI fill:#283142,color:#fff,stroke:#C9A05C,stroke-width:2px
 ```
 
-API documentation:
+No vendor owns more than one layer. Postgres is **mandatory** in production —
+serverless filesystems are read-only, so the SQLite fallback cannot persist there.
+Use Neon's **pooled** connection string.
 
-```text
-http://127.0.0.1:8000/docs
+Full checklist: [`griot-os/docs/GRIOT_OS_DEPLOYMENT.md`](griot-os/docs/GRIOT_OS_DEPLOYMENT.md)
+
+---
+
+## Security posture
+
+This repository holds automation that can write to other repositories. Treat it accordingly.
+
+- **No authentication is implemented yet.** Every endpoint is open. Do not expose a public deployment until an auth layer lands.
+- **Never commit credentials.** `.gitignore` covers `.env` and `*.db`; secrets belong in env vars or GitHub Secrets.
+- **Agent writes go through pull requests.** No automation should commit directly to a default branch.
+- **CI triggers must not accept untrusted input.** Workflows holding a cross-repo token must never interpolate arbitrary user text into a prompt.
+- **Least privilege.** Scope tokens to the specific repositories they need.
+
+Agent-facing engineering rules: [`AGENTS.md`](AGENTS.md) · Persona and tone: [`CLAUDE.md`](CLAUDE.md)
+
+---
+
+## Roadmap
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#283142','primaryTextColor':'#ffffff','primaryBorderColor':'#C9A05C','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
+flowchart TB
+    subgraph P0["Phase 0 — Harden"]
+        A1["Auth on every route"]
+        A2["PR-based agent writes"]
+    end
+    subgraph P1["Phase 1 — Ship"]
+        B1["Vercel routing"]
+        B2["Connection pooling"]
+    end
+    subgraph P2["Phase 2 — Capability"]
+        C1["Conversation history"]
+        C2["Automatic memory writes"]
+        C3["Approval loop"]
+    end
+    subgraph P3["Phase 3 — Trust"]
+        D1["pytest + ruff in CI"]
+        D2["Semantic routing"]
+    end
+    P0 --> P1 --> P2 --> P3
+
+    style P0 fill:#283142,color:#fff,stroke:#C9A05C,stroke-width:2px
+    style P1 fill:#3a4557,color:#fff,stroke:#C9A05C,stroke-width:2px
+    style P2 fill:#C9A05C,color:#283142,stroke:#283142,stroke-width:2px
+    style P3 fill:#f4f4f5,color:#283142,stroke:#283142,stroke-width:2px
 ```
 
-## Production deployment
+---
 
-The production path is:
+<div align="center">
 
-```text
-GitHub
-   ↓
-Vercel
-   ├── FastAPI backend
-   └── GRIOT web interface
-        ↓
-Neon Postgres
-        ↓
-GRIOT memory / decisions / KPIs
-        ↓
-GitHub + project APIs + research + future tools
-```
+<sub>Built by **Thomas Otieno** · SpeakPower</sub><br/>
+<sub><i>Articulate is key.</i></sub>
 
-Cloudflare can sit in front as the DNS and domain layer. There is no requirement for Supabase in this architecture.
-
-See:
-
-**`docs/GRIOT_OS_DEPLOYMENT.md`**
-
-for the deployment checklist and environment variables.
-
-## Safety and approvals
-
-The agent is deliberately designed to challenge assumptions and request approval before risky external actions. Do not give it destructive database permissions, unrestricted production credentials or financial authority.
-
-## Repository status
-
-The GRIOT OS implementation lives on the `griot-os-v1` branch while it is being reviewed. It includes the strategic brain, specialist routing, local/production memory support, browser interface, FastAPI API and deployment scaffolding.
-
-The long-term goal is not an AI that simply answers Thomas's questions.
-
-The goal is an AI that can **understand the portfolio, think strategically, work with evidence, build solutions, learn from outcomes and safely execute approved operations.**
+</div>
