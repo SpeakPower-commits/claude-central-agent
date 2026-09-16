@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/speakpower-logo.png" alt="SpeakPower" width="140" />
+<img src="docs/speakpower-logo.png" alt="SpeakPower" width="140" />
 
 # GRIOT OS
 
@@ -13,6 +13,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-283142?style=for-the-badge&logo=python&logoColor=C9A05C)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.117-283142?style=for-the-badge&logo=fastapi&logoColor=C9A05C)
+![Claude](https://img.shields.io/badge/Claude-Opus%205-283142?style=for-the-badge&logo=anthropic&logoColor=C9A05C)
 ![Postgres](https://img.shields.io/badge/Postgres-Neon-283142?style=for-the-badge&logo=postgresql&logoColor=C9A05C)
 ![Docker](https://img.shields.io/badge/Docker-ready-283142?style=for-the-badge&logo=docker&logoColor=C9A05C)
 <br/>
@@ -69,7 +70,7 @@ flowchart TB
     subgraph api["⚙️  GRIOT OS — FastAPI"]
         direction TB
         R["Router<br/><code>route()</code>"]
-        P["Prompt builder<br/><code>build_prompt()</code>"]
+        P["Prompt builder<br/><code>build_system_prompt()</code>"]
         M["Model adapter<br/><code>model()</code>"]
         R --> P --> M
     end
@@ -80,12 +81,12 @@ flowchart TB
         PG[("Postgres<br/><i>production</i>")]
     end
 
-    LLM["🧠 LLM provider<br/>OpenAI-compatible"]
+    LLM["🧠 Claude API<br/>claude-opus-5"]
 
     UI -->|"POST /chat"| R
     P <-->|"read memories"| store
     M -->|"write decisions"| store
-    M <-->|"HTTPS"| LLM
+    M <-->|"messages.create"| LLM
     M -->|"answer + agents[]"| UI
 
     style client fill:#f4f4f5,stroke:#283142,stroke-width:2px
@@ -110,15 +111,15 @@ sequenceDiagram
     participant U as Browser
     participant A as FastAPI
     participant D as Datastore
-    participant L as LLM
+    participant L as Claude
 
     U->>A: POST /chat {message, project}
     A->>A: validate project slug
     A->>A: route(message) → specialist labels
     A->>D: SELECT memories WHERE project IN (slug,'global')
     D-->>A: prior context (n rows)
-    A->>A: build_prompt(req, memories, agents)
-    A->>L: chat/completions
+    A->>A: build_system_prompt(req, memories, agents)
+    A->>L: messages.create (adaptive thinking)
     L-->>A: strategic analysis
     A->>D: INSERT INTO decisions (…, 'analyzed')
     A-->>U: {decision_id, agents[], memory_used, answer}
@@ -215,7 +216,7 @@ Honest accounting. This is an alpha — the architecture above is the target, an
 | Decision logging | ✅ | Every `/chat` persists a `decision_id` |
 | Browser UI | ✅ | Zero-dependency vanilla JS |
 | Memory read into prompt | ✅ | Manual writes via `POST /memory` |
-| Model reasoning | ⚠️ | Requires a valid `OPENAI_MODEL`; ships without one |
+| Claude reasoning | ✅ | `claude-opus-5` with adaptive thinking; typed error handling |
 | Automatic memory writes | ❌ | `LEARN` not yet persisted — see [Roadmap](#roadmap) |
 | Conversation history | ❌ | `/chat` is stateless single-shot |
 | Approval gate (`/approval`) | ❌ | Endpoint exists; no producer writes `actions` |
@@ -236,7 +237,7 @@ cd claude-central-agent/griot-os
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env    # then set OPENAI_API_KEY and a valid OPENAI_MODEL
+cp .env.example .env    # then set ANTHROPIC_API_KEY
 python3 -m uvicorn app.main:app --reload
 ```
 
@@ -246,7 +247,7 @@ python3 -m uvicorn app.main:app --reload
 | OpenAPI docs | http://127.0.0.1:8000/docs |
 | Health probe | http://127.0.0.1:8000/health |
 
-> **Note** — without `OPENAI_API_KEY` the service still boots and exercises routing,
+> **Note** — without `ANTHROPIC_API_KEY` the service still boots and exercises routing,
 > memory and persistence in *orchestration-only mode*. Useful for testing the pipeline
 > without spending tokens.
 
@@ -256,7 +257,7 @@ python3 -m uvicorn app.main:app --reload
 
 | Method | Path | Purpose |
 |:--|:--|:--|
-| `GET` | `/health` | Liveness + active memory backend |
+| `GET` | `/health` | Liveness, memory backend, active model |
 | `GET` | `/projects` | Registered project slugs |
 | `GET` | `/agents` | Specialist roster |
 | `GET` | `/memories?project=` | Recent memory, project + global scope |
@@ -281,7 +282,7 @@ flowchart LR
     GH["GitHub<br/><i>source of truth</i>"] -->|"push → build"| V["Vercel<br/><i>Python runtime</i>"]
     CF["Cloudflare<br/><i>DNS</i>"] -.->|"CNAME"| V
     V --> NEON[("Neon Postgres<br/><i>pooled</i>")]
-    V --> OAI["LLM provider"]
+    V --> OAI["Claude API"]
 
     style GH fill:#283142,color:#fff,stroke:#C9A05C,stroke-width:2px
     style V fill:#C9A05C,color:#283142,stroke:#283142,stroke-width:3px
