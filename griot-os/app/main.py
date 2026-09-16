@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
+import anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -26,6 +26,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.getenv("GRIOT_DB_PATH", ROOT / "griot.db"))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+# Claude model defaults. Override per-deployment with ANTHROPIC_MODEL.
+DEFAULT_MODEL = "claude-opus-5"
+MAX_OUTPUT_TOKENS = 16000
 
 PROJECTS = {
     "speakpower": "Brand storytelling, communications, market development",
@@ -210,7 +214,12 @@ def route(text: str) -> list[str]:
     return list(dict.fromkeys(agents))
 
 
-def build_prompt(req: ChatRequest, memories: list[dict], agents: list[str]) -> str:
+def build_system_prompt(req: ChatRequest, memories: list[dict], agents: list[str]) -> str:
+    """Build the operator instruction: identity, protocol and retrieved memory.
+
+    Kept separate from the user's request so the model receives a proper
+    system/user split rather than one undifferentiated block.
+    """
     project_context = PROJECTS.get(req.project or "other", "Cross-project strategic work")
     memory_text = "\n".join(
         f"- [{item['confidence']}] {item['title']}: {item['content']}" for item in memories
@@ -230,10 +239,7 @@ Never present an inference or hypothesis as a fact. Challenge weak assumptions. 
 STORED MEMORY:
 {memory_text}
 
-REQUEST:
-{req.message}
-
-Return:
+Structure every response as:
 1. Diagnosis
 2. Evidence and unknowns
 3. Recommendation
@@ -243,33 +249,50 @@ Return:
 """
 
 
-async def model(prompt_text: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+async def model(system_prompt: str, user_message: str) -> str:
+    """Send one strategic-analysis turn to Claude and return the text response.
+
+    Runs in orchestration-only mode when no API key is configured, so routing,
+    memory and decision logging stay testable without spending tokens.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         return (
-            "GRIOT OS is running in orchestration-only mode. Add OPENAI_API_KEY to enable model reasoning. "
+            "GRIOT OS is running in orchestration-only mode. Add ANTHROPIC_API_KEY to enable model reasoning. "
             "Project routing, memory, decision logging and the interface are active."
         )
 
-    base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    payload = {
-        "model": os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
-        "messages": [{"role": "system", "content": prompt_text}],
-        "temperature": 0.2,
-    }
-    async with httpx.AsyncClient(timeout=90) as client:
-        response = await client.post(
-            base + "/chat/completions",
-            headers={"Authorization": "Bearer " + api_key},
-            json=payload,
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    try:
+        response = await client.messages.create(
+            model=os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL),
+            max_tokens=MAX_OUTPUT_TOKENS,
+            thinking={"type": "adaptive"},
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
         )
-    if response.status_code >= 400:
-        raise HTTPException(response.status_code, response.text[:1000])
-    data = response.json()
-    choices = data.get("choices", [])
-    if not choices:
-        raise HTTPException(502, "Model returned no choices")
-    return choices[0]["message"]["content"]
+    except anthropic.AuthenticationError:
+        raise HTTPException(401, "ANTHROPIC_API_KEY is invalid or revoked")
+    except anthropic.PermissionDeniedError:
+        raise HTTPException(403, "API key lacks permission for this model")
+    except anthropic.NotFoundError:
+        raise HTTPException(404, f"Unknown model: {os.getenv('ANTHROPIC_MODEL', DEFAULT_MODEL)}")
+    except anthropic.RateLimitError as exc:
+        retry_after = exc.response.headers.get("retry-after", "60")
+        raise HTTPException(429, f"Rate limited by the Claude API. Retry after {retry_after}s.")
+    except anthropic.APIStatusError as exc:
+        raise HTTPException(502 if exc.status_code >= 500 else exc.status_code, exc.message)
+    except anthropic.APIConnectionError:
+        raise HTTPException(503, "Could not reach the Claude API")
+
+    if response.stop_reason == "refusal":
+        category = getattr(response.stop_details, "category", None)
+        raise HTTPException(422, f"Claude declined this request (category: {category})")
+
+    answer = "".join(block.text for block in response.content if block.type == "text").strip()
+    if not answer:
+        raise HTTPException(502, "Claude returned no text content")
+    return answer
 
 
 @app.on_event("startup")
@@ -284,6 +307,8 @@ def health():
         "agent": "GRIOT OS",
         "version": app.version,
         "memory": "postgres" if DATABASE_URL else "sqlite",
+        "model": os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL),
+        "model_ready": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
     }
 
 
@@ -326,7 +351,7 @@ async def chat(req: ChatRequest):
         raise HTTPException(400, "Unknown project")
     selected_agents = route(req.message)
     memory = fetch_memories(req.project)
-    answer = await model(build_prompt(req, memory, selected_agents))
+    answer = await model(build_system_prompt(req, memory, selected_agents), req.message)
     decision_id = str(uuid.uuid4())
     insert_row(
         "decisions",
