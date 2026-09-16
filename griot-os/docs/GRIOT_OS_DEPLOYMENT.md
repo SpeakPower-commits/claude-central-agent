@@ -8,9 +8,9 @@ Use:
 - **Vercel** — web app + FastAPI API
 - **Neon Postgres** — durable GRIOT memory
 - **Cloudflare** — optional DNS/custom-domain layer
-- **OpenAI API** — model reasoning
+- **Claude API** — model reasoning
 
-Supabase is not required for GRIOT's production memory. Vercel currently supports FastAPI on its Python runtime, and Neon is available as a Vercel Marketplace Postgres integration with plans starting at $0. citeturn303451search1turn303451search0
+Supabase is not required for GRIOT's production memory. Vercel currently supports FastAPI on its Python runtime, and Neon is available as a Vercel Marketplace Postgres integration with plans starting at $0.
 
 ## 1. Import the repository into Vercel
 
@@ -30,26 +30,25 @@ Vercel detects the Python FastAPI entrypoint under `api/index.py` and the browse
 
 In the Vercel project, open **Storage / Marketplace** and add **Neon Postgres**.
 
-The Neon integration can provision a managed Postgres database and exposes `DATABASE_URL` to the project. Neon has a free plan and can scale later. citeturn303451search0turn303451search3
+The Neon integration can provision a managed Postgres database and exposes `DATABASE_URL` to the project. Neon has a free plan and can scale later.
 
-## 3. Add the OpenAI environment variables
+## 3. Add the Claude environment variables
 
 In Vercel Project Settings → Environment Variables, add:
 
 ```env
-OPENAI_API_KEY=your_api_key
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-5.6-luna
+ANTHROPIC_API_KEY=your_api_key
+ANTHROPIC_MODEL=claude-opus-5
 DATABASE_URL=provided_by_neon
 ```
 
-Never put the OpenAI key in `public/`, browser JavaScript or a Git-tracked `.env` file.
+Never put the Claude API key in `public/`, browser JavaScript or a Git-tracked `.env` file.
 
 ## 4. Deploy
 
 Pushes to the selected branch can trigger deployments automatically once the GitHub repository is connected to Vercel.
 
-For local verification, Vercel's FastAPI tooling can also run the project locally. citeturn303451search1turn303451search8
+For local verification, Vercel's FastAPI tooling can also run the project locally.
 
 ## 5. Verify the production app
 
@@ -90,7 +89,7 @@ Before calling GRIOT production-ready:
 
 - [ ] Vercel deployment succeeds
 - [ ] `/api/health` returns `status: ok`
-- [ ] OpenAI key works server-side
+- [ ] Claude API key works server-side
 - [ ] Neon connection works
 - [ ] Memory survives a redeploy
 - [ ] Decisions are written to Postgres
@@ -104,6 +103,6 @@ Before calling GRIOT production-ready:
 
 The practical goal is to avoid making GRIOT dependent on one vendor for every layer.
 
-Vercel handles the application runtime and deployment. Neon handles Postgres memory. Cloudflare can handle DNS. OpenAI supplies the reasoning model. GitHub remains the source of truth.
+Vercel handles the application runtime and deployment. Neon handles Postgres memory. Cloudflare can handle DNS. Anthropic supplies the reasoning model (Claude). GitHub remains the source of truth.
 
 That gives GRIOT a clean path from a local prototype to a real hosted application without putting the agent's memory inside any of your existing business databases.
