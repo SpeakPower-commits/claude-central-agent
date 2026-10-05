@@ -24,7 +24,12 @@ Set the **Root Directory** to:
 
 Do not deploy the repository root. The GRIOT application lives inside the `griot-os` directory.
 
-Vercel detects the Python FastAPI entrypoint under `api/index.py` and the browser interface under `public/`.
+Vercel runs the FastAPI app through `api/index.py`. `vercel.json` rewrites every path to
+that entrypoint, and FastAPI serves the browser interface from `app/static/`.
+
+Do not add a `public/` directory. Vercel serves static files before applying rewrites, so a
+`public/index.html` would shadow the application at `/` and you would see a stale page while
+the API still answered on other paths.
 
 ## 2. Add the production database
 
@@ -54,7 +59,7 @@ Set all four for the **Production** environment, and delete any leftover
 `DATABASE_URL` and `GRIOT_API_KEY`, so a missing one fails the deploy loudly
 instead of silently serving a degraded app.
 
-Never put the Claude API key in `public/`, browser JavaScript or a Git-tracked `.env` file.
+Never put the Claude API key in browser JavaScript or a Git-tracked `.env` file.
 
 ## 4. Deploy to production
 
