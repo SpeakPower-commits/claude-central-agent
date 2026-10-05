@@ -10,7 +10,8 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">GRIOT <span>OS</span></div>
-      <p class="tagline">Strategic intelligence & execution</p>
+      <p class="tagline">Strategic intelligence &amp; execution</p>
+
       <label for="project">Project</label>
       <select id="project">
         <option value="speakpower">SpeakPower</option>
@@ -20,14 +21,23 @@
         <option value="fob">FoB</option>
         <option value="other">Portfolio / Other</option>
       </select>
+
+      <label for="api-key">API key</label>
+      <div id="key-bar" class="key-bar">
+        <input id="api-key" type="password" autocomplete="off" spellcheck="false"
+               placeholder="GRIOT_API_KEY" />
+      </div>
+
       <div class="status-card">
         <span class="dot"></span>
         <div>
           <strong>GRIOT online</strong>
-          <small>Local app mode</small>
+          <small id="status-detail">checking…</small>
         </div>
       </div>
-      <div class="principle">“Never confuse activity with progress.”</div>
+
+      <button id="new-thread" class="ghost">Start new thread</button>
+      <div class="principle">&ldquo;Never confuse activity with progress.&rdquo;</div>
     </aside>
 
     <main class="main">
@@ -36,13 +46,17 @@
           <h1>What are we solving?</h1>
           <p>Give GRIOT the situation. It will route the right strategic specialists.</p>
         </div>
-        <a href="/docs" target="_blank">API docs</a>
+        <div class="topbar-meta">
+          <span id="thread-label">new thread</span>
+          <a href="/docs" target="_blank" rel="noopener">API docs</a>
+        </div>
       </header>
 
       <section id="chat" class="chat"></section>
 
       <div class="composer">
-        <textarea id="message" rows="3" placeholder="e.g. Audit Tonninyira and tell me our biggest growth constraint."></textarea>
+        <textarea id="message" rows="3"
+                  placeholder="e.g. Audit Tonninyira and tell me our biggest growth constraint."></textarea>
         <div class="composer-row">
           <div class="quick-actions">
             <button data-prompt="Challenge my current strategy. What am I missing?">Challenge</button>
