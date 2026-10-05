@@ -9,6 +9,7 @@ const threadLabel = document.getElementById('thread-label');
 
 const KEY_STORAGE = 'griot.apiKey';
 const THREAD_STORAGE = 'griot.threadId';
+const PROJECT_STORAGE = 'griot.project';
 
 let threadId = null;
 
@@ -58,7 +59,50 @@ function addBubble(text, role, meta = '') {
 }
 
 function selectedLabel() {
-  return projectSelect.options[projectSelect.selectedIndex].text;
+  const opt = projectSelect.options[projectSelect.selectedIndex];
+  return opt ? opt.text : 'Portfolio';
+}
+
+
+/** Populate the project dropdown from the API.
+ *  /projects is authenticated, so this runs once a key is available and again
+ *  whenever the key changes. Without a key we show a prompt rather than an
+ *  empty box, so the UI explains itself.
+ */
+async function loadProjects() {
+  const placeholder = (text) => {
+    projectSelect.replaceChildren();
+    const o = document.createElement('option');
+    o.textContent = text;
+    o.value = '';
+    projectSelect.appendChild(o);
+  };
+
+  if (!apiKey()) {
+    placeholder('Add your API key first');
+    return;
+  }
+
+  try {
+    const res = await fetch('/projects', { headers: { 'X-API-Key': apiKey() } });
+    if (!res.ok) {
+      placeholder(res.status === 401 ? 'Invalid API key' : 'Could not load projects');
+      return;
+    }
+    const projects = await res.json();
+    const previous = readStored(PROJECT_STORAGE);
+    projectSelect.replaceChildren();
+    for (const [slug, meta] of Object.entries(projects)) {
+      const o = document.createElement('option');
+      o.value = slug;
+      o.textContent = meta.name || slug;
+      o.title = meta.description || '';
+      projectSelect.appendChild(o);
+    }
+    if (previous && projects[previous]) projectSelect.value = previous;
+  } catch {
+    placeholder('Could not load projects');
+  }
 }
 
 async function ask() {
@@ -71,6 +115,11 @@ async function ask() {
     return;
   }
 
+  if (!projectSelect.value) {
+    addBubble('Pick a project first.', 'agent', 'GRIOT');
+    return;
+  }
+  writeStored(PROJECT_STORAGE, projectSelect.value);
   addBubble(text, 'user', selectedLabel());
   message.value = '';
   send.disabled = true;
@@ -134,6 +183,7 @@ newThread.addEventListener('click', () => {
 keyInput.addEventListener('change', () => {
   writeStored(KEY_STORAGE, apiKey() || null);
   keyBar.classList.toggle('has-key', Boolean(apiKey()));
+  loadProjects();
 });
 
 document.querySelectorAll('[data-prompt]').forEach((btn) => {
@@ -148,6 +198,7 @@ document.querySelectorAll('[data-prompt]').forEach((btn) => {
 keyInput.value = readStored(KEY_STORAGE) || '';
 keyBar.classList.toggle('has-key', Boolean(apiKey()));
 setThread(readStored(THREAD_STORAGE));
+loadProjects();
 
 fetch('/health')
   .then((r) => r.json())

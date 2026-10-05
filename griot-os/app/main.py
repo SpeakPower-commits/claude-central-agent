@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import config, db, llm
-from .domain import AGENTS, PROJECTS, STEPS
+from .domain import AGENTS, PROJECT_NAMES, PROJECTS, STEPS
 from .security import require_api_key
 
 logging.basicConfig(level=logging.INFO)
@@ -108,6 +108,18 @@ def health(check_db: bool = True):
     }
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers request /favicon.ico at the root regardless of the link tags.
+
+    vercel.json rewrites every path to this app, so without an explicit route
+    that request would 404 against the API.
+    """
+    return FileResponse(
+        config.STATIC_DIR / "brand" / "icon-32.png", media_type="image/png"
+    )
+
+
 @app.get("/")
 def root():
     return FileResponse(config.STATIC_DIR / "index.html")
@@ -120,7 +132,11 @@ protected = [Depends(require_api_key)]
 
 @app.get("/projects", dependencies=protected)
 def projects():
-    return PROJECTS
+    """Projects this instance works across, with display names for the UI."""
+    return {
+        slug: {"name": PROJECT_NAMES[slug], "description": description}
+        for slug, description in PROJECTS.items()
+    }
 
 
 @app.get("/agents", dependencies=protected)

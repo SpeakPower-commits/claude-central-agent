@@ -14,12 +14,18 @@ from .config import APP_DIR
 logger = logging.getLogger(__name__)
 
 _FALLBACK_PROJECTS = {
-    "speakpower": "Brand storytelling, communications, market development",
-    "tonninyira": "Marketplace product, software, growth and operations",
-    "cuepointe": "Community, tournament operations, brand and growth",
-    "ubf": "Conservation communications and AI/process automation",
-    "fob": "Biodiversity/community ecosystem and operations",
-    "other": "Business analysis, brand strategy and project operations",
+    "speakpower": {"name": "SpeakPower",
+                   "description": "Brand storytelling, communications, market development"},
+    "tonninyira": {"name": "Tonninyira",
+                   "description": "Marketplace product, software, growth and operations"},
+    "cuepointe": {"name": "CuePointe",
+                  "description": "Community, tournament operations, brand and growth"},
+    "ubf": {"name": "UBF",
+            "description": "Conservation communications and AI/process automation"},
+    "fob": {"name": "FoB",
+            "description": "Biodiversity/community ecosystem and operations"},
+    "other": {"name": "Portfolio / Other",
+              "description": "Business analysis, brand strategy and project operations"},
 }
 
 _FALLBACK_AGENTS = [
@@ -44,7 +50,33 @@ def _load_manifest() -> dict:
 
 _manifest = _load_manifest()
 
-PROJECTS: dict[str, str] = _manifest.get("projects") or _FALLBACK_PROJECTS
+_raw_projects: dict = _manifest.get("projects") or _FALLBACK_PROJECTS
+
+
+def _normalise(entry: str | dict) -> dict:
+    """Accept either a bare description string or a {name, description} object.
+
+    The string form is the older manifest shape; keeping it readable means an
+    existing manifest does not have to be rewritten to keep working.
+    """
+    if isinstance(entry, dict):
+        return entry
+    return {"name": None, "description": str(entry)}
+
+
+# Slug -> description. This is what the model sees as project context.
+PROJECTS: dict[str, str] = {
+    slug: _normalise(entry).get("description", "")
+    for slug, entry in _raw_projects.items()
+}
+
+# Slug -> display name for the interface. Falls back to a title-cased slug,
+# which is why acronyms such as UBF and FoB are named explicitly above rather
+# than left to be mangled into "Ubf" and "Fob".
+PROJECT_NAMES: dict[str, str] = {
+    slug: (_normalise(entry).get("name") or slug.replace("-", " ").title())
+    for slug, entry in _raw_projects.items()
+}
 
 # Specialist key -> display name. Keys are the short forms the router emits.
 AGENTS: dict[str, str] = {
