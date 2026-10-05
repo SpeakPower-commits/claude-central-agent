@@ -419,3 +419,49 @@ button.ghost:hover {
 
   .send { width: 100%; }
 }
+
+/* --- Brand lockup and attribution ------------------------------------------ */
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.brand-row .mark {
+  flex: none;
+  width: 34px;
+  height: 34px;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  padding-top: 24px;
+}
+
+.sidebar-foot .principle {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.attribution {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--navy-600);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--on-navy-faint);
+}
+
+.attribution strong {
+  color: var(--gold-500);
+  font-weight: 600;
+}
+
+@media (max-width: 860px) {
+  /* The footer block is part of the hidden sidebar body on narrow screens;
+     the brand row stays so the mark is still visible. */
+  .sidebar .sidebar-foot { display: none; }
+  .brand-row .mark { width: 26px; height: 26px; }
+}

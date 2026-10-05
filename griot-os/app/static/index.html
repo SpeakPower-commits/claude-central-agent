@@ -3,24 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GRIOT OS</title>
+  <title>GRIOT OS — Strategic Intelligence Agent</title>
+  <meta name="description" content="GRIOT OS is a strategic intelligence and execution agent: it diagnoses before it recommends, separates evidence from assumption, and remembers the decisions it helped you make. A product of SpeakPower." />
+  <meta name="author" content="SpeakPower" />
+  <meta name="theme-color" content="#283142" />
+
+  <!-- Icons. The SVG adapts to the browser's light/dark tab bar; the PNGs are
+       fallbacks for clients that do not support SVG favicons. -->
+  <link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/static/brand/icon-32.png" sizes="32x32" type="image/png" />
+  <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png" />
+  <link rel="manifest" href="/static/brand/manifest.webmanifest" />
+
+  <!-- Social preview: what a prospect sees when the link is shared. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="SpeakPower" />
+  <meta property="og:title" content="GRIOT OS — Strategic Intelligence Agent" />
+  <meta property="og:description" content="Diagnoses before it recommends. Separates evidence from assumption. Remembers the decisions it helped you make." />
+  <meta property="og:image" content="/static/brand/og-card.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="GRIOT OS — Strategic Intelligence Agent" />
+  <meta name="twitter:description" content="Diagnoses before it recommends. Separates evidence from assumption." />
+  <meta name="twitter:image" content="/static/brand/og-card.png" />
+
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">GRIOT <span>OS</span></div>
+      <div class="brand-row">
+        <img class="mark" src="/static/brand/favicon.svg" alt="" width="34" height="34" />
+        <div class="brand">GRIOT <span>OS</span></div>
+      </div>
       <p class="tagline">Strategic intelligence &amp; execution</p>
 
       <label for="project">Project</label>
-      <select id="project">
-        <option value="speakpower">SpeakPower</option>
-        <option value="tonninyira">Tonninyira</option>
-        <option value="cuepointe">CuePointe</option>
-        <option value="ubf">UBF</option>
-        <option value="fob">FoB</option>
-        <option value="other">Portfolio / Other</option>
-      </select>
+      <select id="project"></select>
 
       <label for="api-key">API key</label>
       <div id="key-bar" class="key-bar">
@@ -37,7 +57,11 @@
       </div>
 
       <button id="new-thread" class="ghost">Start new thread</button>
-      <div class="principle">&ldquo;Never confuse activity with progress.&rdquo;</div>
+
+      <div class="sidebar-foot">
+        <div class="principle">&ldquo;Never confuse activity with progress.&rdquo;</div>
+        <div class="attribution">A product of <strong>SpeakPower</strong></div>
+      </div>
     </aside>
 
     <main class="main">

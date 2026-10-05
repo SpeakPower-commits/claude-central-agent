@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .bubble { fill: #283142; }
+    .ray    { stroke: #C9A05C; }
+    .core   { fill: #C9A05C; }
+    @media (prefers-color-scheme: dark) {
+      .bubble { fill: #F2EFE9; }
+    }
+  </style>
+  <path class="bubble" d="M32 5 A25 25 0 1 1 31.9 5 Z"/>
+  <path class="bubble" d="M19 47 L15 61 L32 50 Z"/>
+  <g class="ray" stroke-width="4.2" stroke-linecap="round">
+    <line x1="32" y1="14" x2="32" y2="22"/>
+    <line x1="47" y1="20" x2="42" y2="26"/>
+    <line x1="17" y1="20" x2="22" y2="26"/>
+  </g>
+  <circle class="core" cx="32" cy="37" r="11"/>
+</svg>

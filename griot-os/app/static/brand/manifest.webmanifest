@@ -1,0 +1,14 @@
+{
+  "name": "GRIOT OS — Strategic Intelligence Agent",
+  "short_name": "GRIOT OS",
+  "description": "Strategic intelligence and execution agent. A product of SpeakPower.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#283142",
+  "theme_color": "#283142",
+  "icons": [
+    { "src": "/static/brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/brand/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
