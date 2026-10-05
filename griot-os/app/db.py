@@ -19,6 +19,7 @@ kills the function.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 import uuid
@@ -36,10 +37,19 @@ except ImportError:  # pragma: no cover - exercised only in trimmed installs
     dict_row = None
 
 
+# Every row belongs to exactly one tenant. No helper in this module reads or
+# writes a domain table without one.
+TENANT_TABLES = ("memories", "decisions", "actions", "messages")
+
+# Slug charset for a tenant id. Applied to the migration default below, and to
+# every inbound id in security.resolve_tenant().
+_SAFE_TENANT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
 SCHEMA_SQL = [
     """
     create table if not exists memories (
         id text primary key,
+        tenant_id text not null,
         project text not null,
         kind text not null,
         title text not null,
@@ -51,6 +61,7 @@ SCHEMA_SQL = [
     """
     create table if not exists decisions (
         id text primary key,
+        tenant_id text not null,
         thread_id text,
         project text not null,
         request text not null,
@@ -62,6 +73,7 @@ SCHEMA_SQL = [
     """
     create table if not exists actions (
         id text primary key,
+        tenant_id text not null,
         project text not null,
         action_type text not null,
         payload text not null,
@@ -72,6 +84,7 @@ SCHEMA_SQL = [
     """
     create table if not exists messages (
         id text primary key,
+        tenant_id text not null,
         thread_id text not null,
         project text,
         role text not null,
@@ -79,8 +92,20 @@ SCHEMA_SQL = [
         created_at text not null
     )
     """,
-    "create index if not exists idx_messages_thread on messages (thread_id, created_at)",
-    "create index if not exists idx_memories_project on memories (project, created_at)",
+]
+
+# Indexes are applied separately, and strictly after _add_tenant_column: every
+# one of them leads with tenant_id, so on a database created before tenancy the
+# column has to exist first. Running them inside SCHEMA_SQL fails with
+# "no such column: tenant_id" on exactly the upgrade path that matters.
+INDEX_SQL = [
+    # tenant_id leads every index because it leads every where-clause.
+    "create index if not exists idx_messages_tenant_thread "
+    "on messages (tenant_id, thread_id, created_at)",
+    "create index if not exists idx_memories_tenant_project "
+    "on memories (tenant_id, project, created_at)",
+    "create index if not exists idx_decisions_tenant "
+    "on decisions (tenant_id, created_at)",
 ]
 
 _init_lock = threading.Lock()
@@ -174,7 +199,62 @@ def init() -> None:
         with connection() as conn:
             for statement in SCHEMA_SQL:
                 conn.execute(statement)
+            _add_tenant_column(conn)
+            for statement in INDEX_SQL:
+                conn.execute(statement)
         _initialised = True
+
+
+def _existing_columns(conn: Any, table: str) -> set[str]:
+    """Column names on `table`, asked of whichever backend is active.
+
+    Introspection rather than try/except around ALTER: a swallowed exception
+    would hide a real migration failure as readily as a duplicate column, and
+    the two drivers raise different types for it.
+    """
+    if using_postgres():
+        # Scoped to the connection's own schema: information_schema spans every
+        # schema the role can see, so an unqualified table_name match could
+        # find a same-named table elsewhere and skip a migration that is due.
+        rows = conn.execute(
+            "select column_name from information_schema.columns "
+            "where table_schema = current_schema() and table_name = %s",
+            (table,),
+        ).fetchall()
+        return {dict(row)["column_name"] for row in rows}
+
+    rows = conn.execute(f"pragma table_info({table})").fetchall()
+    return {dict(row)["name"] for row in rows}
+
+
+def _add_tenant_column(conn: Any) -> None:
+    """Add tenant_id to tables created before multi-tenancy, and backfill.
+
+    `create table if not exists` is a no-op on an existing table, so a
+    deployment that already holds the operator's history would otherwise keep
+    the old shape and fail every insert. The DEFAULT on the ALTER backfills
+    every existing row to the internal tenant in one statement, which is what
+    keeps that history reachable.
+
+    Idempotent: once the column exists this does nothing.
+    """
+    # DDL takes no bound parameters in either backend, so the default is
+    # interpolated. It comes from an operator-set env var rather than a
+    # request, but interpolated SQL gets a charset guard regardless -- and the
+    # guard doubles as a typo check on GRIOT_INTERNAL_TENANT.
+    if not _SAFE_TENANT.fullmatch(config.INTERNAL_TENANT):
+        raise ValueError(
+            "GRIOT_INTERNAL_TENANT must match "
+            f"{_SAFE_TENANT.pattern} (got {config.INTERNAL_TENANT!r})"
+        )
+
+    for table in TENANT_TABLES:
+        if "tenant_id" in _existing_columns(conn, table):
+            continue
+        conn.execute(
+            f"alter table {table} add column tenant_id text not null "
+            f"default '{config.INTERNAL_TENANT}'"
+        )
 
 
 def health() -> tuple[bool, str | None]:
@@ -194,24 +274,34 @@ def health() -> tuple[bool, str | None]:
 # --- Domain helpers ----------------------------------------------------------
 
 
-def fetch_memories(project: str | None = None, limit: int | None = None) -> list[dict]:
+def fetch_memories(
+    tenant_id: str, project: str | None = None, limit: int | None = None
+) -> list[dict]:
+    """Memories visible to one tenant.
+
+    'global' is a project within a tenant, not across tenants -- the tenant
+    filter applies to it like any other row.
+    """
     limit = limit or config.MEMORY_LIMIT
     if project:
         return query(
-            "select * from memories where project in (?, 'global') "
+            "select * from memories where tenant_id = ? and project in (?, 'global') "
             "order by created_at desc limit ?",
-            (project, limit),
+            (tenant_id, project, limit),
         )
     return query(
-        "select * from memories order by created_at desc limit ?", (limit,)
+        "select * from memories where tenant_id = ? "
+        "order by created_at desc limit ?",
+        (tenant_id, limit),
     )
 
 
 def insert_memory(
-    project: str, kind: str, title: str, content: str, confidence: str
+    tenant_id: str, project: str, kind: str, title: str, content: str, confidence: str
 ) -> dict:
     row = {
         "id": new_id(),
+        "tenant_id": tenant_id,
         "project": project,
         "kind": kind,
         "title": title,
@@ -220,44 +310,62 @@ def insert_memory(
         "created_at": now(),
     }
     execute(
-        "insert into memories (id, project, kind, title, content, confidence, created_at) "
-        "values (?, ?, ?, ?, ?, ?, ?)",
+        "insert into memories "
+        "(id, tenant_id, project, kind, title, content, confidence, created_at) "
+        "values (?, ?, ?, ?, ?, ?, ?, ?)",
         tuple(row[k] for k in
-              ("id", "project", "kind", "title", "content", "confidence", "created_at")),
+              ("id", "tenant_id", "project", "kind", "title", "content",
+               "confidence", "created_at")),
     )
     return row
 
 
-def fetch_history(thread_id: str, turns: int | None = None) -> list[dict]:
-    """Return the most recent messages for a thread, oldest first."""
+def fetch_history(
+    tenant_id: str, thread_id: str, turns: int | None = None
+) -> list[dict]:
+    """Return the most recent messages for a thread, oldest first.
+
+    Scoped by tenant as well as thread: a thread id is a UUID, but guessing is
+    not the only way to come by one, and an id is not an authorisation.
+    """
     turns = turns or config.HISTORY_TURNS
     rows = query(
-        "select role, content, created_at from messages where thread_id = ? "
+        "select role, content, created_at from messages "
+        "where tenant_id = ? and thread_id = ? "
         "order by created_at desc limit ?",
-        (thread_id, turns * 2),
+        (tenant_id, thread_id, turns * 2),
     )
     return list(reversed(rows))
 
 
-def insert_message(thread_id: str, project: str | None, role: str, content: str) -> None:
+def insert_message(
+    tenant_id: str, thread_id: str, project: str | None, role: str, content: str
+) -> None:
     execute(
-        "insert into messages (id, thread_id, project, role, content, created_at) "
-        "values (?, ?, ?, ?, ?, ?)",
-        (new_id(), thread_id, project, role, content, now()),
+        "insert into messages "
+        "(id, tenant_id, thread_id, project, role, content, created_at) "
+        "values (?, ?, ?, ?, ?, ?, ?)",
+        (new_id(), tenant_id, thread_id, project, role, content, now()),
     )
 
 
 def insert_decision(
-    decision_id: str, thread_id: str, project: str, request: str, recommendation: str
+    tenant_id: str, decision_id: str, thread_id: str, project: str,
+    request: str, recommendation: str,
 ) -> None:
     execute(
-        "insert into decisions (id, thread_id, project, request, recommendation, status, created_at) "
-        "values (?, ?, ?, ?, ?, ?, ?)",
-        (decision_id, thread_id, project, request, recommendation[:5000], "analyzed", now()),
+        "insert into decisions "
+        "(id, tenant_id, thread_id, project, request, recommendation, status, created_at) "
+        "values (?, ?, ?, ?, ?, ?, ?, ?)",
+        (decision_id, tenant_id, thread_id, project, request,
+         recommendation[:5000], "analyzed", now()),
     )
 
 
-def update_action(action_id: str, status: str) -> bool:
+def update_action(tenant_id: str, action_id: str, status: str) -> bool:
+    """Returns False for another tenant's action id, exactly as for an unknown
+    one -- the caller cannot tell the two apart, which is the point."""
     return execute(
-        "update actions set status = ? where id = ?", (status, action_id)
+        "update actions set status = ? where id = ? and tenant_id = ?",
+        (status, action_id, tenant_id),
     ) > 0
