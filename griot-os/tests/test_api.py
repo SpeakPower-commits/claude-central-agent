@@ -169,3 +169,152 @@ def test_serverless_requires_api_key(monkeypatch):
     monkeypatch.setenv("VERCEL", "1")
     with pytest.raises(config.ConfigError, match="GRIOT_API_KEY"):
         config.validate()
+
+
+# --- Tenancy -----------------------------------------------------------------
+#
+# The isolation tests are written adversarially: each one asserts that a tenant
+# CANNOT see something, because a scoping bug shows up as silent over-sharing
+# rather than as an error.
+
+TENANT_A = {**AUTH, "X-Tenant-Id": "client-alpha"}
+TENANT_B = {**AUTH, "X-Tenant-Id": "client-beta"}
+
+
+def _memory(project: str, title: str) -> dict:
+    return {
+        "project": project,
+        "kind": "constraint",
+        "title": title,
+        "content": "Written by one tenant only.",
+        "confidence": "fact",
+    }
+
+
+def test_memories_do_not_leak_between_tenants(client):
+    client.post("/memory", json=_memory("tonninyira", "Alpha only"), headers=TENANT_A)
+    client.post("/memory", json=_memory("tonninyira", "Beta only"), headers=TENANT_B)
+
+    a_titles = [m["title"] for m in client.get("/memories", headers=TENANT_A).json()]
+    b_titles = [m["title"] for m in client.get("/memories", headers=TENANT_B).json()]
+
+    assert "Alpha only" in a_titles and "Beta only" not in a_titles
+    assert "Beta only" in b_titles and "Alpha only" not in b_titles
+
+
+def test_global_project_is_scoped_per_tenant(client):
+    """'global' is global within a tenant, not across them."""
+    client.post("/memory", json=_memory("global", "Alpha global"), headers=TENANT_A)
+
+    b_titles = [m["title"] for m in client.get(
+        "/memories?project=tonninyira", headers=TENANT_B
+    ).json()]
+    assert "Alpha global" not in b_titles
+
+
+def test_a_thread_id_is_not_an_authorisation(client):
+    """Holding another tenant's thread id must not reveal the thread."""
+    created = client.post(
+        "/chat", json={"message": "Alpha's private question"}, headers=TENANT_A
+    ).json()
+    thread_id = created["thread_id"]
+
+    assert client.get(f"/threads/{thread_id}", headers=TENANT_A).status_code == 200
+    assert client.get(f"/threads/{thread_id}", headers=TENANT_B).status_code == 404
+
+
+def test_history_does_not_cross_tenants(client):
+    """Reusing another tenant's thread id must not replay their history."""
+    first = client.post(
+        "/chat", json={"message": "Alpha turn one"}, headers=TENANT_A
+    ).json()
+    client.post(
+        "/chat",
+        json={"message": "Alpha turn two", "thread_id": first["thread_id"]},
+        headers=TENANT_A,
+    )
+
+    intruder = client.post(
+        "/chat",
+        json={"message": "Beta on Alpha's thread", "thread_id": first["thread_id"]},
+        headers=TENANT_B,
+    ).json()
+    assert intruder["history_turns"] == 0
+
+
+def test_approval_of_another_tenants_action_is_not_found(client):
+    from app import db
+
+    action_id = db.new_id()
+    db.execute(
+        "insert into actions "
+        "(id, tenant_id, project, action_type, payload, status, created_at) "
+        "values (?, ?, ?, ?, ?, ?, ?)",
+        (action_id, "client-alpha", "tonninyira", "publish", "{}", "pending", db.now()),
+    )
+
+    assert client.post(
+        "/approval", json={"action_id": action_id, "approved": True}, headers=TENANT_B
+    ).status_code == 404
+    assert client.post(
+        "/approval", json={"action_id": action_id, "approved": True}, headers=TENANT_A
+    ).status_code == 200
+
+
+def test_no_tenant_header_falls_back_to_the_internal_tenant(client):
+    """The operator's own existing usage keeps working, unchanged."""
+    client.post("/memory", json=_memory("speakpower", "Operator note"), headers=AUTH)
+
+    assert "Operator note" in [
+        m["title"] for m in client.get("/memories", headers=AUTH).json()
+    ]
+    assert "Operator note" not in [
+        m["title"] for m in client.get("/memories", headers=TENANT_A).json()
+    ]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["", "   ", "-leading-hyphen", "has space", "has/slash", "a" * 65, "'; drop table--"],
+)
+def test_malformed_tenant_ids_are_rejected_not_coerced(client, bad):
+    r = client.get("/memories", headers={**AUTH, "X-Tenant-Id": bad})
+    assert r.status_code == 400
+
+
+# --- Migration ---------------------------------------------------------------
+
+
+def test_pre_tenancy_rows_are_backfilled(tmp_path, monkeypatch):
+    """A database created before tenancy must keep its history, not lose it.
+
+    `create table if not exists` is a no-op on an existing table, so without
+    the ALTER this row would be stranded under a column that never arrives.
+    """
+    import sqlite3
+
+    from app import db
+
+    legacy = tmp_path / "legacy.db"
+    conn = sqlite3.connect(legacy)
+    conn.execute(
+        "create table memories (id text primary key, project text not null, "
+        "kind text not null, title text not null, content text not null, "
+        "confidence text not null, created_at text not null)"
+    )
+    conn.execute(
+        "insert into memories values ('old-1', 'speakpower', 'fact', "
+        "'Written before tenancy', 'body', 'fact', '2026-01-01T00:00:00Z')"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(config, "SQLITE_PATH", legacy)
+    monkeypatch.setattr(config, "DATABASE_URL", "")
+    monkeypatch.setattr(db, "_initialised", False)
+
+    rows = db.fetch_memories(config.INTERNAL_TENANT)
+
+    assert [r["title"] for r in rows] == ["Written before tenancy"]
+    assert rows[0]["tenant_id"] == config.INTERNAL_TENANT
+    assert db.fetch_memories("client-alpha") == []
