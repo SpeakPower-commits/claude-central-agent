@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="GRIOT OS — strategic intelligence and execution agent" />
+  <title>GRIOT OS</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="logo">GRIOT <span>OS</span></div>
+      <div class="eyebrow">Strategic intelligence & execution</div>
+      <label for="project">Project context</label>
+      <select id="project">
+        <option value="speakpower">SpeakPower</option>
+        <option value="tonninyira">Tonninyira</option>
+        <option value="cuepointe">CuePointe</option>
+        <option value="ubf">UBF</option>
+        <option value="fob">FoB</option>
+        <option value="other">Portfolio / Other</option>
+      </select>
+      <div class="status"><span></span><div><strong>Ready</strong><small>Production-ready shell</small></div></div>
+      <p class="rule">Never confuse activity with progress.</p>
+    </aside>
+
+    <main class="main">
+      <header class="hero">
+        <div>
+          <div class="eyebrow">YOUR STRATEGIC OPERATING SYSTEM</div>
+          <h1>What are we really trying to achieve?</h1>
+          <p>Choose the project, describe the situation, and let GRIOT route the right strategic, data, brand and technical thinking.</p>
+        </div>
+        <a href="/api/docs" target="_blank" rel="noreferrer">API docs ↗</a>
+      </header>
+
+      <section id="chat" class="chat" aria-live="polite"></section>
+
+      <div class="composer">
+        <textarea id="message" rows="4" placeholder="Example: Audit Tonninyira's growth. Separate facts from assumptions, identify the real bottleneck, and tell me what to do next."></textarea>
+        <div class="composer-footer">
+          <div class="quick">
+            <button data-prompt="Challenge my current strategy. What am I missing?">Challenge me</button>
+            <button data-prompt="Diagnose the problem using evidence before recommending action.">Diagnose</button>
+            <button data-prompt="Turn the situation into a practical next-step plan with metrics.">Build a plan</button>
+          </div>
+          <button id="send" class="send">Ask GRIOT</button>
+        </div>
+        <div class="hint">Ctrl + Enter to send</div>
+      </div>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
