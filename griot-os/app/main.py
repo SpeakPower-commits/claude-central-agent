@@ -27,11 +27,17 @@ VERSION = "0.3.0"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Validate configuration and prepare storage once per process."""
+    """Validate configuration at startup.
+
+    Deliberately does no network or database work. On a serverless runtime this
+    runs on every cold start, and anything that can block here blocks the first
+    request behind it -- an unreachable database would turn into a function
+    timeout rather than a diagnosable response. Schema setup happens lazily on
+    first use instead (see db.init).
+    """
     config.validate()
-    db.init()
     logger.info(
-        "GRIOT OS %s ready (memory=%s, model=%s, auth=%s)",
+        "GRIOT OS %s starting (memory=%s, model=%s, auth=%s)",
         VERSION, db.backend_name(), config.ANTHROPIC_MODEL, config.auth_enabled(),
     )
     yield
@@ -80,14 +86,22 @@ class ApprovalRequest(BaseModel):
 
 
 @app.get("/health")
-def health():
-    """Unauthenticated liveness probe. Reports configuration, never secrets."""
+def health(check_db: bool = True):
+    """Unauthenticated liveness probe. Reports configuration, never secrets.
+
+    Pass ?check_db=false to skip the storage round trip when you only need to
+    know the function itself is alive.
+    """
+    database_ready, database_error = (
+        db.health() if check_db else (None, "not checked")
+    )
     return {
         "status": "ok",
         "agent": "GRIOT OS",
         "version": VERSION,
         "memory": db.backend_name(),
-        "database_ready": db.health(),
+        "database_ready": database_ready,
+        "database_error": database_error,
         "model": config.ANTHROPIC_MODEL,
         "model_ready": config.model_ready(),
         "auth_enabled": config.auth_enabled(),

@@ -3,10 +3,18 @@
 Presents one API over two backends: Postgres in production, SQLite locally.
 Callers never branch on the backend; this module owns that decision.
 
-Connections are pooled. The previous implementation opened a fresh connection
-per statement, which on a serverless runtime against a managed Postgres means
-a TCP + TLS + auth round trip on every query and, under any concurrency,
-connection exhaustion.
+Connections are short-lived and pooled *server-side* by Neon's PgBouncer
+endpoint, not by a client-side pool.
+
+That is deliberate. A client-side `psycopg_pool.ConnectionPool` runs background
+worker threads, and this process is frozen between invocations on a serverless
+runtime: threads that outlive the handler can leave an invocation that never
+completes, which surfaces as a function timeout rather than an error. Pointing
+DATABASE_URL at the pooled endpoint gets the pooling without that hazard.
+
+Every connection carries an explicit connect timeout so an unreachable database
+fails in seconds with a clear message instead of hanging until the platform
+kills the function.
 """
 
 from __future__ import annotations
@@ -21,10 +29,10 @@ from typing import Any, Iterator
 from . import config
 
 try:
-    from psycopg_pool import ConnectionPool
+    import psycopg
     from psycopg.rows import dict_row
 except ImportError:  # pragma: no cover - exercised only in trimmed installs
-    ConnectionPool = None
+    psycopg = None
     dict_row = None
 
 
@@ -75,9 +83,13 @@ SCHEMA_SQL = [
     "create index if not exists idx_memories_project on memories (project, created_at)",
 ]
 
-_pool: Any = None
-_pool_lock = threading.Lock()
+_init_lock = threading.Lock()
 _initialised = False
+
+# Seconds to wait for a database connection before giving up. Short on purpose:
+# a cold start that cannot reach Postgres should report that quickly, not sit
+# until the platform's function timeout.
+CONNECT_TIMEOUT = 8
 
 
 def now() -> str:
@@ -96,44 +108,25 @@ def backend_name() -> str:
     return "postgres" if using_postgres() else "sqlite"
 
 
-def _get_pool():
-    """Lazily build the Postgres pool, once per process.
-
-    min_size is 0 so a cold serverless instance that never touches the database
-    pays nothing, and max_size is small because each instance serves few
-    concurrent requests -- the ceiling that matters is the provider's, shared
-    across all warm instances.
-    """
-    global _pool
-    if _pool is not None:
-        return _pool
-    with _pool_lock:
-        if _pool is None:
-            if ConnectionPool is None:
-                raise RuntimeError(
-                    "DATABASE_URL is set but psycopg_pool is not installed"
-                )
-            _pool = ConnectionPool(
-                conninfo=config.DATABASE_URL,
-                min_size=0,
-                max_size=4,
-                timeout=10,
-                max_idle=300,
-                kwargs={"row_factory": dict_row},
-                open=True,
-            )
-    return _pool
-
-
 @contextmanager
 def connection() -> Iterator[Any]:
-    """Yield a connection from the active backend."""
+    """Yield a connection to the active backend, closing it afterwards."""
     if using_postgres():
-        with _get_pool().connection() as conn:
+        if psycopg is None:
+            raise RuntimeError("DATABASE_URL is set but psycopg is not installed")
+        conn = psycopg.connect(
+            config.DATABASE_URL,
+            connect_timeout=CONNECT_TIMEOUT,
+            row_factory=dict_row,
+        )
+        try:
             yield conn
+            conn.commit()
+        finally:
+            conn.close()
         return
 
-    conn = sqlite3.connect(config.SQLITE_PATH)
+    conn = sqlite3.connect(config.SQLITE_PATH, timeout=CONNECT_TIMEOUT)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -152,44 +145,50 @@ def _sql(statement: str) -> str:
 
 def execute(statement: str, params: tuple = ()) -> int:
     """Run a write. Returns the affected row count."""
+    init()
     with connection() as conn:
-        cur = conn.execute(_sql(statement), params)
-        if using_postgres():
-            conn.commit()
-        return cur.rowcount
+        return conn.execute(_sql(statement), params).rowcount
 
 
 def query(statement: str, params: tuple = ()) -> list[dict]:
     """Run a read. Returns rows as plain dicts."""
+    init()
     with connection() as conn:
-        cur = conn.execute(_sql(statement), params)
-        rows = cur.fetchall()
+        rows = conn.execute(_sql(statement), params).fetchall()
     return [dict(row) for row in rows]
 
 
 def init() -> None:
-    """Create tables if absent. Runs once per process, not once per request."""
+    """Create tables if absent. Runs once per process, not once per request.
+
+    Called lazily from the first query rather than at startup: a serverless
+    cold start should not block on schema work before it can answer anything,
+    and /health must stay answerable even when the database is unreachable.
+    """
     global _initialised
     if _initialised:
         return
-    with _pool_lock:
+    with _init_lock:
         if _initialised:
             return
         with connection() as conn:
             for statement in SCHEMA_SQL:
                 conn.execute(statement)
-            if using_postgres():
-                conn.commit()
         _initialised = True
 
 
-def health() -> bool:
-    """True when the datastore answers. Used by the health probe."""
+def health() -> tuple[bool, str | None]:
+    """Report whether the datastore answers, and why not when it does not.
+
+    Never raises: the probe has to stay useful precisely when storage is the
+    thing that is broken.
+    """
     try:
-        query("select 1 as ok")
-        return True
-    except Exception:
-        return False
+        with connection() as conn:
+            conn.execute("select 1")
+        return True, None
+    except Exception as exc:  # noqa: BLE001 - surfaced as diagnostic text
+        return False, f"{type(exc).__name__}: {str(exc)[:200]}"
 
 
 # --- Domain helpers ----------------------------------------------------------
