@@ -69,9 +69,9 @@ flowchart TB
 
     subgraph api["⚙️  GRIOT OS — FastAPI"]
         direction TB
-        R["Router<br/><code>route()</code>"]
-        P["Prompt builder<br/><code>build_system_prompt()</code>"]
-        M["Model adapter<br/><code>model()</code>"]
+        R["Router<br/><code>llm.route()</code>"]
+        P["Prompt builder<br/><code>llm.build_system_prompt()</code>"]
+        M["Model adapter<br/><code>llm.analyse()</code>"]
         R --> P --> M
     end
 
@@ -118,7 +118,7 @@ sequenceDiagram
     A->>A: route(message) → specialist labels
     A->>D: SELECT memories WHERE project IN (slug,'global')
     D-->>A: prior context (n rows)
-    A->>A: build_system_prompt(req, memories, agents)
+    A->>A: build_system_prompt + replay thread history
     A->>L: messages.create (adaptive thinking)
     L-->>A: strategic analysis
     A->>D: INSERT INTO decisions (…, 'analyzed')
@@ -215,14 +215,16 @@ Honest accounting. This is an alpha — the architecture above is the target, an
 | SQLite + Postgres dual backend | ✅ | Runtime-selected on `DATABASE_URL` |
 | Decision logging | ✅ | Every `/chat` persists a `decision_id` |
 | Browser UI | ✅ | Zero-dependency vanilla JS |
-| Memory read into prompt | ✅ | Manual writes via `POST /memory` |
-| Claude reasoning | ✅ | `claude-opus-5` with adaptive thinking; typed error handling |
-| Automatic memory writes | ❌ | `LEARN` not yet persisted — see [Roadmap](#roadmap) |
-| Conversation history | ❌ | `/chat` is stateless single-shot |
+| Claude reasoning | ✅ | `claude-opus-5`, adaptive thinking, typed error handling |
+| Conversation history | ✅ | Durable threads; prior turns replayed per request |
+| Automatic memory writes | ✅ | Each exchange distilled to a memory row by a worker model |
+| API-key authentication | ✅ | `X-API-Key`, constant-time compare, on every spending route |
+| Connection pooling | ✅ | Pooled Postgres; was a fresh connection per statement |
+| Serverless startup guards | ✅ | Refuses to boot without a database or an API key |
+| Smoke tests | ✅ | 16 tests: auth, threads, routing, startup guards |
 | Approval gate (`/approval`) | ❌ | Endpoint exists; no producer writes `actions` |
 | Operating modes | ❌ | `mode` accepted, not yet dispatched |
 | Tool use / web research | ❌ | No tool layer yet |
-| Auth | ❌ | **Do not deploy publicly.** See [Security](#security-posture) |
 
 Legend: ✅ shipped · ⚠️ partial · ❌ designed, not built
 
@@ -237,7 +239,7 @@ cd claude-central-agent/griot-os
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env    # then set ANTHROPIC_API_KEY
+cp .env.example .env    # set ANTHROPIC_API_KEY, and GRIOT_API_KEY to enable auth
 python3 -m uvicorn app.main:app --reload
 ```
 
@@ -262,12 +264,16 @@ python3 -m uvicorn app.main:app --reload
 | `GET` | `/agents` | Specialist roster |
 | `GET` | `/memories?project=` | Recent memory, project + global scope |
 | `POST` | `/memory` | Persist a memory with a confidence tag |
-| `POST` | `/chat` | Full decision-protocol pass |
+| `GET` | `/threads/{id}` | Replay a stored conversation |
+| `POST` | `/chat` | Full decision-protocol pass, within a thread |
 | `POST` | `/approval` | Resolve a pending action *(see status table)* |
+
+Every route except `/health` and the UI shell requires an `X-API-Key` header.
 
 ```bash
 curl -s -X POST localhost:8000/chat \
   -H 'Content-Type: application/json' \
+  -H "X-API-Key: $GRIOT_API_KEY" \
   -d '{"message":"Registrations rise, orders flat. Diagnose the bottleneck.",
        "project":"tonninyira"}' | jq
 ```
@@ -303,7 +309,7 @@ Full checklist: [`griot-os/docs/GRIOT_OS_DEPLOYMENT.md`](griot-os/docs/GRIOT_OS_
 
 This repository holds automation that can write to other repositories. Treat it accordingly.
 
-- **No authentication is implemented yet.** Every endpoint is open. Do not expose a public deployment until an auth layer lands.
+- **Authentication is enforced.** `GRIOT_API_KEY` guards every route that reads or spends; the app refuses to start on Vercel without it.
 - **Never commit credentials.** `.gitignore` covers `.env` and `*.db`; secrets belong in env vars or GitHub Secrets.
 - **Agent writes go through pull requests.** No automation should commit directly to a default branch.
 - **CI triggers must not accept untrusted input.** Workflows holding a cross-repo token must never interpolate arbitrary user text into a prompt.
@@ -318,18 +324,15 @@ Agent-facing engineering rules: [`AGENTS.md`](AGENTS.md) · Persona and tone: [`
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#283142','primaryTextColor':'#ffffff','primaryBorderColor':'#C9A05C','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
 flowchart TB
-    subgraph P0["Phase 0 — Harden"]
-        A1["Auth on every route"]
+    subgraph P0["Phase 0 — Harden ✓"]
         A2["PR-based agent writes"]
     end
-    subgraph P1["Phase 1 — Ship"]
-        B1["Vercel routing"]
-        B2["Connection pooling"]
+    subgraph P1["Phase 1 — Ship ✓"]
+        B3["Promote to production"]
     end
     subgraph P2["Phase 2 — Capability"]
-        C1["Conversation history"]
-        C2["Automatic memory writes"]
         C3["Approval loop"]
+        C4["Operating modes"]
     end
     subgraph P3["Phase 3 — Trust"]
         D1["pytest + ruff in CI"]

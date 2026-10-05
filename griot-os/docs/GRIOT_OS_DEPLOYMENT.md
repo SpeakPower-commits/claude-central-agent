@@ -39,25 +39,62 @@ In Vercel Project Settings → Environment Variables, add:
 ```env
 ANTHROPIC_API_KEY=your_api_key
 ANTHROPIC_MODEL=claude-opus-5
+GRIOT_API_KEY=generate_a_long_random_string
 DATABASE_URL=provided_by_neon
 ```
 
+Generate `GRIOT_API_KEY` with:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Set all four for the **Production** environment, and delete any leftover
+`OPENAI_*` variables. The application refuses to start on Vercel without
+`DATABASE_URL` and `GRIOT_API_KEY`, so a missing one fails the deploy loudly
+instead of silently serving a degraded app.
+
 Never put the Claude API key in `public/`, browser JavaScript or a Git-tracked `.env` file.
 
-## 4. Deploy
+## 4. Deploy to production
 
-Pushes to the selected branch can trigger deployments automatically once the GitHub repository is connected to Vercel.
+Pushes to the selected branch trigger deployments automatically once the GitHub
+repository is connected to Vercel.
+
+A branch push produces a **preview** deployment. Previews do not serve your
+production domain -- a project whose deployments are all previews shows
+`"live": false` and nothing answers on `claude-central-agent.vercel.app`.
+Promote a build to production from the deployment's **⋯ → Promote to
+Production**, or merge the branch into the project's production branch.
 
 For local verification, Vercel's FastAPI tooling can also run the project locally.
 
-## 5. Verify the production app
+## 5. Turn off Vercel Authentication
 
-Check:
+New projects enable **Vercel Authentication**, which puts an SSO wall in front
+of every `.vercel.app` URL. While it is on, only signed-in members of your
+Vercel account can reach the app -- not your phone, and not anyone you share
+the link with.
 
-```text
-/
-/api/docs
-/api/health
+Settings → Deployment Protection → **Vercel Authentication → Disabled**.
+
+This is safe only because the application now enforces its own `GRIOT_API_KEY`
+on every route that reads or spends. Do not disable it before that key is set.
+
+## 6. Verify the production app
+
+```bash
+curl -s https://<your-deployment>/health | jq
+```
+
+Expect `status: ok`, `memory: "postgres"`, `database_ready: true`,
+`model_ready: true` and `auth_enabled: true`. Then:
+
+```bash
+curl -s -X POST https://<your-deployment>/chat \
+  -H 'Content-Type: application/json' \
+  -H "X-API-Key: $GRIOT_API_KEY" \
+  -d '{"message":"Audit the current product strategy.","project":"tonninyira"}' | jq
 ```
 
 Then send a test request from the GRIOT interface:
@@ -69,7 +106,7 @@ Audit the current product strategy. Separate facts from assumptions and tell me 
 
 The response should show the routed specialist agents and the memory count.
 
-## 6. Add a custom domain
+## 7. Add a custom domain
 
 A clean production setup is:
 
@@ -83,23 +120,23 @@ griot.yourdomain.com
 
 Cloudflare can remain your DNS provider. Point the custom subdomain to the Vercel deployment using the DNS records Vercel gives you.
 
-## 7. Production checklist
+## 8. Production checklist
 
 Before calling GRIOT production-ready:
 
-- [ ] Vercel deployment succeeds
-- [ ] `/api/health` returns `status: ok`
-- [ ] Claude API key works server-side
-- [ ] Neon connection works
-- [ ] Memory survives a redeploy
-- [ ] Decisions are written to Postgres
-- [ ] Browser can chat with `/api/chat`
-- [ ] API docs are not accidentally exposing secrets
+- [ ] A deployment is promoted to **production** (`"live": true`)
+- [ ] Vercel Authentication is disabled, and `GRIOT_API_KEY` is set
+- [ ] `/health` returns `status: ok` with `auth_enabled: true`
+- [ ] `/health` reports `memory: "postgres"`, not `sqlite`
+- [ ] A request without `X-API-Key` returns 401
+- [ ] Claude API key works server-side (`model_ready: true`)
+- [ ] All `OPENAI_*` variables are deleted
+- [ ] Memory and threads survive a redeploy
+- [ ] Neon's **pooled** connection string is in use
 - [ ] No `.env` or API credentials are committed
-- [ ] Production tool permissions remain least-privilege
 - [ ] External write actions remain approval-gated
 
-## 8. Why this stack
+## 9. Why this stack
 
 The practical goal is to avoid making GRIOT dependent on one vendor for every layer.
 
