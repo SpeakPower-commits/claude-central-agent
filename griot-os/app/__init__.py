@@ -1,0 +1,1 @@
+"""GRIOT OS application package."""

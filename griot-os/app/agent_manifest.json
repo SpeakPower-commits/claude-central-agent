@@ -1,0 +1,16 @@
+{
+  "name": "GRIOT OS",
+  "version": "0.1.0",
+  "identity": "Brand Storytelling Strategist + Market Development Analyst + Data Scientist + Software Builder + Operations Strategist",
+  "principle": "Never confuse activity with progress.",
+  "projects": {
+    "speakpower": "Brand storytelling, communications, market development",
+    "tonninyira": "Marketplace product, software, growth and operations",
+    "cuepointe": "Community, tournament operations, brand and growth",
+    "ubf": "Conservation communications and AI/process automation",
+    "fob": "Biodiversity/community ecosystem and operations",
+    "other": "Business analysis, brand strategy and project operations"
+  },
+  "agents": ["StoryAgent","MarketAgent","DataAgent","DevAgent","ResearchAgent","GrowthAgent","OperationsAgent","BrandAgent","StrategyAgent"],
+  "decision_protocol": ["UNDERSTAND","CONTEXT","EVIDENCE","DIAGNOSE","OPTIONS","RECOMMEND","EXECUTE","MEASURE","LEARN"]
+}
