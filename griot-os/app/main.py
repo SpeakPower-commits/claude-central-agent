@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from . import config, db, llm
 from .domain import AGENTS, PROJECT_NAMES, PROJECTS, STEPS
-from .security import require_api_key
+from .security import TENANT_HEADER, require_api_key, resolve_tenant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("griot")
@@ -105,6 +105,12 @@ def health(check_db: bool = True):
         "model": config.ANTHROPIC_MODEL,
         "model_ready": config.model_ready(),
         "auth_enabled": config.auth_enabled(),
+        # A front end that sells seats checks this before forwarding a client's
+        # message. A GRIOT without tenancy ignores X-Tenant-Id and files every
+        # client into one shared memory pool, so its absence must stop traffic
+        # rather than be discovered afterwards.
+        "tenancy": True,
+        "tenant_header": TENANT_HEADER,
     }
 
 
@@ -150,22 +156,24 @@ def protocol():
 
 
 @app.get("/memories", dependencies=protected)
-def get_memories(project: str | None = None):
-    return db.fetch_memories(project)
+def get_memories(
+    project: str | None = None, tenant_id: str = Depends(resolve_tenant)
+):
+    return db.fetch_memories(tenant_id, project)
 
 
 @app.post("/memory", dependencies=protected)
-def create_memory(req: MemoryRequest):
+def create_memory(req: MemoryRequest, tenant_id: str = Depends(resolve_tenant)):
     if req.project not in PROJECTS and req.project != "global":
         raise HTTPException(400, "Unknown project")
     return db.insert_memory(
-        req.project, req.kind, req.title, req.content, req.confidence
+        tenant_id, req.project, req.kind, req.title, req.content, req.confidence
     )
 
 
 @app.get("/threads/{thread_id}", dependencies=protected)
-def get_thread(thread_id: str):
-    history = db.fetch_history(thread_id, turns=100)
+def get_thread(thread_id: str, tenant_id: str = Depends(resolve_tenant)):
+    history = db.fetch_history(tenant_id, thread_id, turns=100)
     if not history:
         raise HTTPException(404, "No such thread")
     return {"thread_id": thread_id, "messages": history}
@@ -173,15 +181,17 @@ def get_thread(thread_id: str):
 
 @app.post("/chat", dependencies=protected, response_model=ChatResponse)
 @app.post("/api/chat", dependencies=protected, response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(
+    req: ChatRequest, tenant_id: str = Depends(resolve_tenant)
+) -> ChatResponse:
     """One pass of the decision protocol, within a durable conversation thread."""
     if req.project and req.project not in PROJECTS:
         raise HTTPException(400, "Unknown project")
 
     thread_id = req.thread_id or db.new_id()
     selected = llm.route(req.message)
-    memories = db.fetch_memories(req.project)
-    history = db.fetch_history(thread_id)
+    memories = db.fetch_memories(tenant_id, req.project)
+    history = db.fetch_history(tenant_id, thread_id)
 
     answer = await llm.analyse(
         llm.build_system_prompt(req.project, memories, selected),
@@ -191,12 +201,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     # Persist the exchange before anything optional, so a failure in memory
     # distillation can never cost the conversation itself.
-    db.insert_message(thread_id, req.project, "user", req.message)
-    db.insert_message(thread_id, req.project, "assistant", answer)
+    db.insert_message(tenant_id, thread_id, req.project, "user", req.message)
+    db.insert_message(tenant_id, thread_id, req.project, "assistant", answer)
 
     decision_id = db.new_id()
     db.insert_decision(
-        decision_id, thread_id, req.project or "global", req.message, answer
+        tenant_id, decision_id, thread_id, req.project or "global",
+        req.message, answer,
     )
 
     memory_written = None
@@ -206,6 +217,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
         if distilled:
             db.insert_memory(
+                tenant_id,
                 req.project or "global",
                 distilled["kind"],
                 distilled["title"],
@@ -229,8 +241,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 @app.post("/approval", dependencies=protected)
 @app.post("/api/approval", dependencies=protected)
-def approval(req: ApprovalRequest):
+def approval(req: ApprovalRequest, tenant_id: str = Depends(resolve_tenant)):
     status = "approved" if req.approved else "rejected"
-    if not db.update_action(req.action_id, status):
+    if not db.update_action(tenant_id, req.action_id, status):
         raise HTTPException(404, "Action not found")
     return {"action_id": req.action_id, "status": status}

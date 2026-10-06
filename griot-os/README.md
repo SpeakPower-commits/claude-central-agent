@@ -9,6 +9,7 @@ Strategic Intelligence & Execution Agent for SpeakPower, Tonninyira, CuePointe, 
 - Specialized agent routing
 - Evidence discipline: fact / inference / hypothesis / recommendation / unknown
 - Persistent local memory and decision logs
+- Per-tenant isolation (`X-Tenant-Id`) so one deployment can serve several clients
 - Approval endpoint for future execution actions
 - OpenAI-compatible model adapter
 - FastAPI backend with Swagger docs
