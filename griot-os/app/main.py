@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from . import config, db, llm
 from .domain import AGENTS, PROJECT_NAMES, PROJECTS, STEPS
-from .security import require_api_key, resolve_tenant
+from .security import TENANT_HEADER, require_api_key, resolve_tenant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("griot")
@@ -105,6 +105,12 @@ def health(check_db: bool = True):
         "model": config.ANTHROPIC_MODEL,
         "model_ready": config.model_ready(),
         "auth_enabled": config.auth_enabled(),
+        # A front end that sells seats checks this before forwarding a client's
+        # message. A GRIOT without tenancy ignores X-Tenant-Id and files every
+        # client into one shared memory pool, so its absence must stop traffic
+        # rather than be discovered afterwards.
+        "tenancy": True,
+        "tenant_header": TENANT_HEADER,
     }
 
 

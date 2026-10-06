@@ -51,6 +51,16 @@ def test_health_is_public_and_reports_state(client):
     assert body["auth_enabled"] is True
 
 
+def test_health_advertises_tenancy_without_auth(client):
+    # The SpeakPower Worker refuses to forward client traffic to a GRIOT that
+    # does not report this, because a GRIOT without tenancy ignores
+    # X-Tenant-Id and pools every client's memories together. It has to be
+    # readable before authentication, since that is when the Worker checks.
+    body = client.get("/health?check_db=false").json()
+    assert body["tenancy"] is True
+    assert body["tenant_header"] == "X-Tenant-Id"
+
+
 # --- Authentication ----------------------------------------------------------
 
 
