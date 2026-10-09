@@ -369,3 +369,48 @@ def update_action(tenant_id: str, action_id: str, status: str) -> bool:
         "update actions set status = ? where id = ? and tenant_id = ?",
         (status, action_id, tenant_id),
     ) > 0
+
+
+def list_threads(tenant_id: str, limit: int = 30) -> list[dict]:
+    """One tenant's conversations, most recent first.
+
+    Each row carries the first question asked, so a front end can list
+    conversations without replaying them. Another tenant's threads never
+    appear: every row is filtered by tenant before it is grouped.
+    """
+    rows = query(
+        "select m.thread_id as thread_id, min(m.created_at) as started_at, "
+        "max(m.created_at) as last_at, count(*) as messages, "
+        "(select f.content from messages f where f.tenant_id = m.tenant_id "
+        "and f.thread_id = m.thread_id and f.role = 'user' "
+        "order by f.created_at asc limit 1) as first_question "
+        "from messages m where m.tenant_id = ? "
+        "group by m.tenant_id, m.thread_id order by last_at desc limit ?",
+        (tenant_id, limit),
+    )
+    for row in rows:
+        row["first_question"] = (row.get("first_question") or "")[:200]
+    return rows
+
+
+def list_decisions(tenant_id: str, limit: int = 30) -> list[dict]:
+    """One tenant's decision log, newest first, with a short excerpt of each
+    recommendation; the full answer stays in its conversation."""
+    rows = query(
+        "select id, thread_id, project, request, recommendation, status, created_at "
+        "from decisions where tenant_id = ? order by created_at desc limit ?",
+        (tenant_id, limit),
+    )
+    for row in rows:
+        row["request"] = (row.get("request") or "")[:500]
+        row["recommendation"] = (row.get("recommendation") or "")[:600]
+    return rows
+
+
+def delete_memory(tenant_id: str, memory_id: str) -> bool:
+    """Returns False for another tenant's memory id, exactly as for an unknown
+    one -- the caller cannot tell the two apart."""
+    return execute(
+        "delete from memories where id = ? and tenant_id = ?",
+        (memory_id, tenant_id),
+    ) > 0

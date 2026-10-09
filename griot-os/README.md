@@ -10,6 +10,10 @@ Strategic Intelligence & Execution Agent for SpeakPower, Tonninyira, CuePointe, 
 - Evidence discipline: fact / inference / hypothesis / recommendation / unknown
 - Persistent local memory and decision logs
 - Per-tenant isolation (`X-Tenant-Id`) so one deployment can serve several clients
+- A client workspace, every route scoped to the caller's tenant:
+  - `POST /chat` takes optional `lenses` (up to 3 keys from `/agents`) in place of automatic routing, and optional `effort` (`low` / `medium` / `high`) and `max_output_tokens` (1,000-16,000, never above `GRIOT_MAX_OUTPUT_TOKENS`) so a front end can bound the cost of a client's turn. An answer that reaches the limit says so.
+  - `GET /threads` lists conversations with their first question; `GET /decisions` lists the decision log; `DELETE /memories/{id}` removes one memory.
+  - `/health` reports `"workspace": true` once these exist.
 - Approval endpoint for future execution actions
 - OpenAI-compatible model adapter
 - FastAPI backend with Swagger docs
