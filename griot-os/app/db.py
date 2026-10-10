@@ -296,6 +296,35 @@ def fetch_memories(
     )
 
 
+# What a person states about themselves (their role, goal, why now) is filed
+# with this kind. It is pinned: every chat turn sees it, however many newer
+# memories have accumulated since.
+PINNED_KIND = "profile"
+PINNED_LIMIT = 10
+
+
+def fetch_context_memories(tenant_id: str, project: str | None = None) -> list[dict]:
+    """What one chat turn sees: the tenant's pinned profile first, then the
+    latest other memories, up to MEMORY_LIMIT of them."""
+    if project:
+        pinned = query(
+            "select * from memories where tenant_id = ? and kind = ? "
+            "and project in (?, 'global') order by created_at limit ?",
+            (tenant_id, PINNED_KIND, project, PINNED_LIMIT),
+        )
+    else:
+        pinned = query(
+            "select * from memories where tenant_id = ? and kind = ? "
+            "order by created_at limit ?",
+            (tenant_id, PINNED_KIND, PINNED_LIMIT),
+        )
+    recent = [
+        m for m in fetch_memories(tenant_id, project, config.MEMORY_LIMIT + len(pinned))
+        if m["kind"] != PINNED_KIND
+    ]
+    return pinned + recent[: config.MEMORY_LIMIT]
+
+
 def insert_memory(
     tenant_id: str, project: str, kind: str, title: str, content: str, confidence: str
 ) -> dict:

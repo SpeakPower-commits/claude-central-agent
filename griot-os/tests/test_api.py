@@ -414,6 +414,44 @@ def test_a_memory_can_be_deleted_only_by_its_own_tenant(client):
     assert client.delete(f"/memories/{created['id']}", headers=TENANT_A).status_code == 404
 
 
+def test_profile_memories_stay_in_every_turn(client, monkeypatch):
+    tenant = {**AUTH, "X-Tenant-Id": "client-profile"}
+    profile = {**_memory("global", "Who I am"), "kind": "profile",
+               "content": "Head of Partnerships at Alpha"}
+    client.post("/memory", json=profile, headers=tenant)
+    client.post("/memory", json={**profile, "title": "Someone else"}, headers=TENANT_B)
+    for i in range(config.MEMORY_LIMIT + 3):
+        client.post("/memory", json=_memory("global", f"Later note {i}"), headers=tenant)
+
+    seen = {}
+    real = llm.build_system_prompt
+
+    def spy(project, memories, agents):
+        seen["titles"] = [m["title"] for m in memories]
+        return real(project, memories, agents)
+
+    monkeypatch.setattr(llm, "build_system_prompt", spy)
+    r = client.post("/chat", json={"message": "What should I do first?"}, headers=tenant)
+    assert r.status_code == 200
+    # Pinned first, however many newer memories there are; never another tenant's.
+    assert seen["titles"][0] == "Who I am"
+    assert "Someone else" not in seen["titles"]
+    assert len(seen["titles"]) == 1 + config.MEMORY_LIMIT
+    assert r.json()["memory_used"] == 1 + config.MEMORY_LIMIT
+
+
+def test_memories_listing_accepts_a_limit(client):
+    tenant = {**AUTH, "X-Tenant-Id": "client-gamma"}
+    for i in range(config.MEMORY_LIMIT + 4):
+        client.post("/memory", json=_memory("global", f"Gamma {i}"), headers=tenant)
+    assert len(client.get("/memories", headers=tenant).json()) == config.MEMORY_LIMIT
+    assert len(client.get("/memories?limit=100", headers=tenant).json()) == config.MEMORY_LIMIT + 4
+    assert len(client.get("/memories?limit=0", headers=tenant).json()) == config.MEMORY_LIMIT
+    assert len(client.get("/memories?limit=1", headers=tenant).json()) == 1
+    other = [m["title"] for m in client.get("/memories?limit=200", headers=TENANT_B).json()]
+    assert not any(t.startswith("Gamma") for t in other)
+
+
 def test_workspace_reads_require_a_key(client):
     for path in ("/threads", "/decisions"):
         assert client.get(path).status_code == 401

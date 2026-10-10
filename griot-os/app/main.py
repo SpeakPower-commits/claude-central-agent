@@ -168,9 +168,13 @@ def protocol():
 
 @app.get("/memories", dependencies=protected)
 def get_memories(
-    project: str | None = None, tenant_id: str = Depends(resolve_tenant)
+    project: str | None = None,
+    limit: int | None = None,
+    tenant_id: str = Depends(resolve_tenant),
 ):
-    return db.fetch_memories(tenant_id, project)
+    # Without a limit, the same latest few a chat turn would see; a workspace
+    # listing asks for more (at most 200).
+    return db.fetch_memories(tenant_id, project, max(1, min(limit, 200)) if limit else None)
 
 
 @app.post("/memory", dependencies=protected)
@@ -225,7 +229,7 @@ async def chat(
         selected = llm.route(req.message)
 
     thread_id = req.thread_id or db.new_id()
-    memories = db.fetch_memories(tenant_id, req.project)
+    memories = db.fetch_context_memories(tenant_id, req.project)
     history = db.fetch_history(tenant_id, thread_id)
 
     answer = await llm.analyse(
