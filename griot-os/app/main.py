@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -55,6 +56,13 @@ class ChatRequest(BaseModel):
     project: str | None = None
     thread_id: str | None = None
     mode: str = "think"
+    # Specialist lenses chosen by the person asking, by key (see /agents).
+    # Without them GRIOT routes the question itself.
+    lenses: list[str] | None = Field(default=None, max_length=3)
+    # Per-request bounds a front end serving paying clients may set:
+    # reasoning effort, and a backstop on output tokens.
+    effort: Literal["low", "medium", "high"] | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1000, le=16000)
 
 
 class ChatResponse(BaseModel):
@@ -111,6 +119,9 @@ def health(check_db: bool = True):
         # rather than be discovered afterwards.
         "tenancy": True,
         "tenant_header": TENANT_HEADER,
+        # The client workspace: chosen lenses, per-request bounds, and the
+        # tenant-scoped /threads, /decisions and memory deletion below.
+        "workspace": True,
     }
 
 
@@ -157,9 +168,13 @@ def protocol():
 
 @app.get("/memories", dependencies=protected)
 def get_memories(
-    project: str | None = None, tenant_id: str = Depends(resolve_tenant)
+    project: str | None = None,
+    limit: int | None = None,
+    tenant_id: str = Depends(resolve_tenant),
 ):
-    return db.fetch_memories(tenant_id, project)
+    # Without a limit, the same latest few a chat turn would see; a workspace
+    # listing asks for more (at most 200).
+    return db.fetch_memories(tenant_id, project, max(1, min(limit, 200)) if limit else None)
 
 
 @app.post("/memory", dependencies=protected)
@@ -169,6 +184,23 @@ def create_memory(req: MemoryRequest, tenant_id: str = Depends(resolve_tenant)):
     return db.insert_memory(
         tenant_id, req.project, req.kind, req.title, req.content, req.confidence
     )
+
+
+@app.delete("/memories/{memory_id}", dependencies=protected)
+def delete_memory(memory_id: str, tenant_id: str = Depends(resolve_tenant)):
+    if not db.delete_memory(tenant_id, memory_id):
+        raise HTTPException(404, "No such memory")
+    return {"deleted": memory_id}
+
+
+@app.get("/threads", dependencies=protected)
+def list_threads(limit: int = 30, tenant_id: str = Depends(resolve_tenant)):
+    return db.list_threads(tenant_id, max(1, min(limit, 100)))
+
+
+@app.get("/decisions", dependencies=protected)
+def list_decisions(limit: int = 30, tenant_id: str = Depends(resolve_tenant)):
+    return db.list_decisions(tenant_id, max(1, min(limit, 100)))
 
 
 @app.get("/threads/{thread_id}", dependencies=protected)
@@ -188,15 +220,24 @@ async def chat(
     if req.project and req.project not in PROJECTS:
         raise HTTPException(400, "Unknown project")
 
+    if req.lenses:
+        unknown = [key for key in req.lenses if key not in AGENTS]
+        if unknown:
+            raise HTTPException(400, "Unknown lens: " + ", ".join(unknown[:3]))
+        selected = list(dict.fromkeys(req.lenses))
+    else:
+        selected = llm.route(req.message)
+
     thread_id = req.thread_id or db.new_id()
-    selected = llm.route(req.message)
-    memories = db.fetch_memories(tenant_id, req.project)
+    memories = db.fetch_context_memories(tenant_id, req.project)
     history = db.fetch_history(tenant_id, thread_id)
 
     answer = await llm.analyse(
         llm.build_system_prompt(req.project, memories, selected),
         history,
         req.message,
+        effort=req.effort,
+        max_tokens=req.max_output_tokens,
     )
 
     # Persist the exchange before anything optional, so a failure in memory

@@ -140,10 +140,19 @@ def _text_of(response) -> str:
     ).strip()
 
 
+CUT_SHORT_NOTE = "\n\n_(This answer reached its length limit. Ask GRIOT to continue.)_"
+
+
 async def analyse(
-    system_prompt: str, history: list[dict], user_message: str
+    system_prompt: str, history: list[dict], user_message: str,
+    effort: str | None = None, max_tokens: int | None = None,
 ) -> str:
-    """Run one strategic-analysis turn, with prior turns replayed for context."""
+    """Run one strategic-analysis turn, with prior turns replayed for context.
+
+    `effort` and `max_tokens` let a front end serving paying clients bound the
+    cost of a turn. Effort is the lever that shortens reasoning; `max_tokens`
+    is only a backstop and can never exceed GRIOT's own configured ceiling.
+    """
     if not config.model_ready():
         return ORCHESTRATION_ONLY_NOTICE
 
@@ -154,10 +163,14 @@ async def analyse(
     ]
     messages.append({"role": "user", "content": user_message})
 
+    ceiling = min(max_tokens, config.MAX_OUTPUT_TOKENS) if max_tokens else config.MAX_OUTPUT_TOKENS
+    # Sent as a raw body field so it works whatever the installed SDK types.
+    extra = {"extra_body": {"output_config": {"effort": effort}}} if effort else {}
+
     try:
         response = await client().messages.create(
             model=config.ANTHROPIC_MODEL,
-            max_tokens=config.MAX_OUTPUT_TOKENS,
+            max_tokens=ceiling,
             thinking={"type": "adaptive"},
             system=[
                 {
@@ -167,6 +180,7 @@ async def analyse(
                 }
             ],
             messages=messages,
+            **extra,
         )
     except Exception as exc:  # narrowed immediately by _raise_for
         _raise_for(exc)
@@ -178,6 +192,9 @@ async def analyse(
     answer = _text_of(response)
     if not answer:
         raise HTTPException(502, "Claude returned no text content")
+    if response.stop_reason == "max_tokens":
+        # Say so rather than pass off a cut-off answer as complete.
+        answer += CUT_SHORT_NOTE
     return answer
 
 
