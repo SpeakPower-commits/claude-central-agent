@@ -77,7 +77,10 @@ def route(text: str) -> list[str]:
 
 
 def build_system_prompt(
-    project: str | None, memories: list[dict], agents: list[str]
+    project: str | None,
+    memories: list[dict],
+    agents: list[str],
+    documents: list[dict] | None = None,
 ) -> str:
     """Operator instruction: identity, protocol and retrieved memory.
 
@@ -87,6 +90,14 @@ def build_system_prompt(
     memory_text = "\n".join(
         f"- [{item['confidence']}] {item['title']}: {item['content']}" for item in memories
     ) or "- No stored memories retrieved."
+    documents_text = ""
+    if documents:
+        documents_text = (
+            "\n\nCLIENT DOCUMENTS (excerpts from documents the client shared, chosen for this question). "
+            "Each is a FACT about what that document says, not proof about the world. "
+            "When you rely on one, cite its source in square brackets, e.g. [Annual report 2025, p. 4]:\n"
+            + "\n".join(f"- [{item['source']}] {item['text']}" for item in documents)
+        )
 
     return f"""You are GRIOT OS, Thomas's strategic intelligence and execution agent.
 
@@ -102,7 +113,7 @@ Never present an inference or hypothesis as a fact. Challenge weak assumptions.
 Say plainly when you do not know. Never confuse activity with progress.
 
 STORED MEMORY:
-{memory_text}
+{memory_text}{documents_text}
 
 Structure every substantive response as:
 1. Diagnosis

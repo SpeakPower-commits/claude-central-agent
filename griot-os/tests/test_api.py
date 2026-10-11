@@ -426,9 +426,9 @@ def test_profile_memories_stay_in_every_turn(client, monkeypatch):
     seen = {}
     real = llm.build_system_prompt
 
-    def spy(project, memories, agents):
+    def spy(project, memories, agents, documents=None):
         seen["titles"] = [m["title"] for m in memories]
-        return real(project, memories, agents)
+        return real(project, memories, agents, documents)
 
     monkeypatch.setattr(llm, "build_system_prompt", spy)
     r = client.post("/chat", json={"message": "What should I do first?"}, headers=tenant)
@@ -450,6 +450,49 @@ def test_memories_listing_accepts_a_limit(client):
     assert len(client.get("/memories?limit=1", headers=tenant).json()) == 1
     other = [m["title"] for m in client.get("/memories?limit=200", headers=TENANT_B).json()]
     assert not any(t.startswith("Gamma") for t in other)
+
+
+def test_health_advertises_documents(client):
+    assert client.get("/health?check_db=false").json()["documents"] is True
+
+
+def test_document_excerpts_reach_the_prompt_with_their_sources(client, monkeypatch):
+    seen = {}
+
+    async def fake_analyse(system_prompt, history, user_message, effort=None, max_tokens=None):
+        seen["prompt"] = system_prompt
+        return "FACT: [Annual report 2025, p. 4] Enrolment rose."
+
+    monkeypatch.setattr(llm, "analyse", fake_analyse)
+    r = client.post(
+        "/chat",
+        json={"message": "How did enrolment do?", "context": [
+            {"source": "Annual report 2025, p. 4", "text": "Enrolment rose 18% in 2025."},
+            {"source": "Budget 2026", "text": "Teacher salaries are 61% of costs."},
+        ]},
+        headers=TENANT_A,
+    )
+    assert r.status_code == 200
+    assert "CLIENT DOCUMENTS" in seen["prompt"]
+    assert "- [Annual report 2025, p. 4] Enrolment rose 18% in 2025." in seen["prompt"]
+    assert "cite its source in square brackets" in seen["prompt"]
+
+    client.post("/chat", json={"message": "No documents this time"}, headers=TENANT_A)
+    assert "CLIENT DOCUMENTS" not in seen["prompt"], "absent when none are sent"
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        [{"source": "x", "text": "y"}] * 13,
+        [{"source": "x", "text": "y" * 1201}],
+        [{"source": "", "text": "y"}],
+        [{"text": "no source"}],
+    ],
+)
+def test_document_excerpts_are_bounded(client, context):
+    r = client.post("/chat", json={"message": "x", "context": context}, headers=TENANT_A)
+    assert r.status_code == 422
 
 
 def test_workspace_reads_require_a_key(client):
