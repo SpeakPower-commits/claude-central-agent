@@ -51,6 +51,14 @@ app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 # --- Contracts ---------------------------------------------------------------
 
 
+class ContextItem(BaseModel):
+    """An excerpt from a document the client shared, chosen for this question
+    by the front end from the client's own documents."""
+
+    source: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=1200)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20000)
     project: str | None = None
@@ -63,6 +71,8 @@ class ChatRequest(BaseModel):
     # reasoning effort, and a backstop on output tokens.
     effort: Literal["low", "medium", "high"] | None = None
     max_output_tokens: int | None = Field(default=None, ge=1000, le=16000)
+    # Excerpts from the client's own documents that bear on this question.
+    context: list[ContextItem] | None = Field(default=None, max_length=12)
 
 
 class ChatResponse(BaseModel):
@@ -122,6 +132,8 @@ def health(check_db: bool = True):
         # The client workspace: chosen lenses, per-request bounds, and the
         # tenant-scoped /threads, /decisions and memory deletion below.
         "workspace": True,
+        # POST /chat takes `context`: excerpts from the client's documents.
+        "documents": True,
     }
 
 
@@ -233,7 +245,10 @@ async def chat(
     history = db.fetch_history(tenant_id, thread_id)
 
     answer = await llm.analyse(
-        llm.build_system_prompt(req.project, memories, selected),
+        llm.build_system_prompt(
+            req.project, memories, selected,
+            [item.model_dump() for item in req.context or []],
+        ),
         history,
         req.message,
         effort=req.effort,
