@@ -73,6 +73,9 @@ class ChatRequest(BaseModel):
     max_output_tokens: int | None = Field(default=None, ge=1000, le=16000)
     # Excerpts from the client's own documents that bear on this question.
     context: list[ContextItem] | None = Field(default=None, max_length=12)
+    # How to answer this one question, chosen with a button: pressure-test it,
+    # find the root cause, or lay out a plan. Without it, the usual structure.
+    answer_mode: Literal["challenge", "diagnose", "plan"] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -134,6 +137,8 @@ def health(check_db: bool = True):
         "workspace": True,
         # POST /chat takes `context`: excerpts from the client's documents.
         "documents": True,
+        # POST /chat takes `answer_mode`: challenge, diagnose or plan.
+        "modes": True,
     }
 
 
@@ -248,6 +253,7 @@ async def chat(
         llm.build_system_prompt(
             req.project, memories, selected,
             [item.model_dump() for item in req.context or []],
+            answer_mode=req.answer_mode,
         ),
         history,
         req.message,

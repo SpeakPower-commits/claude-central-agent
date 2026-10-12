@@ -426,9 +426,9 @@ def test_profile_memories_stay_in_every_turn(client, monkeypatch):
     seen = {}
     real = llm.build_system_prompt
 
-    def spy(project, memories, agents, documents=None):
+    def spy(project, memories, agents, documents=None, answer_mode=None):
         seen["titles"] = [m["title"] for m in memories]
-        return real(project, memories, agents, documents)
+        return real(project, memories, agents, documents, answer_mode=answer_mode)
 
     monkeypatch.setattr(llm, "build_system_prompt", spy)
     r = client.post("/chat", json={"message": "What should I do first?"}, headers=tenant)
@@ -492,6 +492,43 @@ def test_document_excerpts_reach_the_prompt_with_their_sources(client, monkeypat
 )
 def test_document_excerpts_are_bounded(client, context):
     r = client.post("/chat", json={"message": "x", "context": context}, headers=TENANT_A)
+    assert r.status_code == 422
+
+
+def test_health_advertises_answer_modes(client):
+    assert client.get("/health?check_db=false").json()["modes"] is True
+
+
+@pytest.mark.parametrize(
+    "mode,heading,section",
+    [
+        ("challenge", "CHALLENGE", "five weakest assumptions"),
+        ("diagnose", "DIAGNOSE", "Three likely root causes"),
+        ("plan", "PLAN", "The first step to take this week"),
+    ],
+)
+def test_answer_mode_reaches_the_prompt(client, monkeypatch, mode, heading, section):
+    seen = {}
+
+    async def fake_analyse(system_prompt, history, user_message, effort=None, max_tokens=None):
+        seen["prompt"] = system_prompt
+        seen["message"] = user_message
+        return "RECOMMENDATION: Start small."
+
+    monkeypatch.setattr(llm, "analyse", fake_analyse)
+    r = client.post("/chat", json={"message": "Should we expand?", "answer_mode": mode}, headers=TENANT_A)
+    assert r.status_code == 200
+    assert "ANSWER MODE: " + heading in seen["prompt"]
+    assert section in seen["prompt"]
+    assert seen["message"] == "Should we expand?", "the question itself is never rewritten"
+
+    client.post("/chat", json={"message": "And now?"}, headers=TENANT_A)
+    assert "ANSWER MODE" not in seen["prompt"], "absent when no mode is chosen"
+
+
+@pytest.mark.parametrize("mode", ["think", "CHALLENGE", "", "roast"])
+def test_unknown_answer_modes_are_refused(client, mode):
+    r = client.post("/chat", json={"message": "x", "answer_mode": mode}, headers=TENANT_A)
     assert r.status_code == 422
 
 
