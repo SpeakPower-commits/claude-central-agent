@@ -76,11 +76,44 @@ def route(text: str) -> list[str]:
     return list(dict.fromkeys(agents))
 
 
+# How the person asked GRIOT to answer, chosen with a button rather than
+# written into the question. Each replaces the default structure for one turn;
+# the evidence labels still apply.
+ANSWER_MODES = {
+    "challenge": (
+        "CHALLENGE. Pressure-test the idea instead of supporting it. Use this structure instead of the one above:\n"
+        "1. The idea at its strongest, in two sentences\n"
+        "2. The five weakest assumptions, ranked by how much damage each would do if wrong, each with a quick way to test it\n"
+        "3. The toughest objection a donor, investor or board would raise, and how to answer it\n"
+        "4. What would change your verdict\n"
+        "5. Verdict: proceed, rework or stop, and why"
+    ),
+    "diagnose": (
+        "DIAGNOSE. Find the root cause before suggesting any fix. Use this structure instead of the one above:\n"
+        "1. Symptoms: what is observed, kept apart from causes\n"
+        "2. Three likely root causes, ranked, each with the evidence for it, the evidence against it, "
+        "and the data that would confirm or rule it out\n"
+        "3. The cause to address first, and why\n"
+        "4. What not to fix yet\n"
+        "5. The quickest test to confirm the diagnosis this week"
+    ),
+    "plan": (
+        "PLAN. Turn the goal into an executable plan. Use this structure instead of the one above:\n"
+        "1. The goal as a measurable outcome with a deadline (use the client's own deadline when known)\n"
+        "2. Phases up to the deadline; in each, the actions, who owns them, by when, the resources needed and one KPI\n"
+        "3. The main risks, each with how to reduce it\n"
+        "4. What success looks like at the halfway point\n"
+        "5. The first step to take this week"
+    ),
+}
+
+
 def build_system_prompt(
     project: str | None,
     memories: list[dict],
     agents: list[str],
     documents: list[dict] | None = None,
+    answer_mode: str | None = None,
 ) -> str:
     """Operator instruction: identity, protocol and retrieved memory.
 
@@ -98,6 +131,10 @@ def build_system_prompt(
             "When you rely on one, cite its source in square brackets, e.g. [Annual report 2025, p. 4]:\n"
             + "\n".join(f"- [{item['source']}] {item['text']}" for item in documents)
         )
+
+    mode_text = ""
+    if answer_mode in ANSWER_MODES:
+        mode_text = "\n\nANSWER MODE: " + ANSWER_MODES[answer_mode]
 
     return f"""You are GRIOT OS, Thomas's strategic intelligence and execution agent.
 
@@ -123,7 +160,7 @@ Structure every substantive response as:
 5. Measurement
 6. Approval requirement
 
-For a short clarifying exchange, answer directly instead of forcing the structure."""
+For a short clarifying exchange, answer directly instead of forcing the structure.{mode_text}"""
 
 
 def _raise_for(exc: Exception) -> None:
