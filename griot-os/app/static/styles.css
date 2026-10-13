@@ -502,3 +502,50 @@ body[data-griot="thinking"] .signature {
   .signature { width: 40px; height: 40px; }
   .signature-wrap { margin-bottom: 0; }
 }
+
+
+/* --- The G: the agent's face inside the app ---------------------------------
+   Branding is carried by the Signature alone. The G appears only here, beside
+   what GRIOT says, where its blinking and reacting have something to react to. */
+
+.bubble.agent { position: relative; padding-left: 68px; }
+
+.g-avatar {
+  position: absolute;
+  left: 16px;
+  top: 13px;
+  width: 38px;
+  height: 38px;
+  /* The spectacles are white, and the reply bubble is near-white. The dark
+     disc is how the brand system presents the G on an app icon, and it is
+     what makes the frames legible here. */
+  background: var(--navy-900);
+  border-radius: 50%;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.g-avatar .g-specs { transform-origin: 32px 26.4px; animation: g-blink 6.2s infinite; }
+
+@keyframes g-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  95.5%, 97%    { transform: scaleY(.08); }
+}
+
+/* While GRIOT is working the newest avatar blinks faster and the smile moves. */
+body[data-griot="thinking"] .bubble.agent:last-child .g-specs { animation-duration: 2.4s; }
+body[data-griot="thinking"] .bubble.agent:last-child .g-smile {
+  transform-origin: 44.4px 37px;
+  animation: g-talk .9s ease-in-out infinite;
+}
+
+@keyframes g-talk {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(1.45); }
+}
+
+@media (max-width: 860px) {
+  .bubble.agent { padding-left: 56px; }
+  .g-avatar { left: 12px; width: 32px; height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .g-avatar * { animation: none !important; } }

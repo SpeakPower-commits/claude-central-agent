@@ -41,9 +41,26 @@ function setThread(id) {
   threadLabel.textContent = id ? `thread ${id.slice(0, 8)}` : 'new thread';
 }
 
+const G_MARK = `
+<svg class="g-avatar" viewBox="0 0 64 64" aria-hidden="true">
+  <defs><linearGradient id="gav" x1=".12" y1=".02" x2=".88" y2=".98">
+    <stop offset="0" stop-color="#F2D67B"/><stop offset=".5" stop-color="#E0BE55"/>
+    <stop offset="1" stop-color="#BA9622"/></linearGradient></defs>
+  <path d="M 56.23 32 A 24.23 24.23 0 1 1 51.35 17.42" fill="none"
+        stroke="url(#gav)" stroke-width="5.55" stroke-linecap="round"/>
+  <path class="g-smile" d="M 38.8 37.0 Q 44.4 43.6 50.4 36.4" fill="none"
+        stroke="url(#gav)" stroke-width="5.6" stroke-linecap="round"/>
+  <g class="g-specs" fill="none" stroke="#FAF7EF" stroke-width="2.75" stroke-linejoin="round">
+    <rect x="18.83" y="22.18" width="11.80" height="8.55" rx="2.1"/>
+    <rect x="35.05" y="22.18" width="13.79" height="8.55" rx="2.1"/>
+  </g>
+  <path d="M 31.9 26.3 H 34.0" stroke="#FAF7EF" stroke-width="1.9" stroke-linecap="round"/>
+</svg>`;
+
 function addBubble(text, role, meta = '') {
   const wrap = document.createElement('div');
   wrap.className = `bubble ${role}`;
+  if (role === 'agent') wrap.insertAdjacentHTML('afterbegin', G_MARK);
   if (meta) {
     const m = document.createElement('div');
     m.className = 'meta';
