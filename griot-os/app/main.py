@@ -98,6 +98,10 @@ class MemoryRequest(BaseModel):
     confidence: str = "inference"
 
 
+class ProjectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
 class ApprovalRequest(BaseModel):
     action_id: str
     approved: bool
@@ -139,6 +143,9 @@ def health(check_db: bool = True):
         "documents": True,
         # POST /chat takes `answer_mode`: challenge, diagnose or plan.
         "modes": True,
+        # Clients keep their own projects (/tenant/projects); /chat and
+        # /memory accept them, and /threads and /decisions filter by them.
+        "projects": True,
     }
 
 
@@ -162,6 +169,29 @@ def root():
 # --- Authenticated routes ----------------------------------------------------
 
 protected = [Depends(require_api_key)]
+
+
+# A client may keep up to this many projects of their own.
+MAX_TENANT_PROJECTS = 20
+
+
+def _project_name(name: str) -> str:
+    """One line, single spaces, at most 60 characters."""
+    return " ".join(str(name).split())[:60]
+
+
+def _resolve_project(tenant_id: str, project: str | None) -> str | None:
+    """The label the prompt shows for `project`, or raise 400.
+
+    A project is 'global', one of the operator's ventures (as before), or one
+    this tenant created. Another tenant's project reads as unknown.
+    """
+    if not project or project == "global" or project in PROJECTS:
+        return None
+    own = db.get_tenant_project(tenant_id, project)
+    if not own:
+        raise HTTPException(400, "Unknown project")
+    return own["name"]
 
 
 @app.get("/projects", dependencies=protected)
@@ -196,8 +226,7 @@ def get_memories(
 
 @app.post("/memory", dependencies=protected)
 def create_memory(req: MemoryRequest, tenant_id: str = Depends(resolve_tenant)):
-    if req.project not in PROJECTS and req.project != "global":
-        raise HTTPException(400, "Unknown project")
+    _resolve_project(tenant_id, req.project)
     return db.insert_memory(
         tenant_id, req.project, req.kind, req.title, req.content, req.confidence
     )
@@ -211,13 +240,58 @@ def delete_memory(memory_id: str, tenant_id: str = Depends(resolve_tenant)):
 
 
 @app.get("/threads", dependencies=protected)
-def list_threads(limit: int = 30, tenant_id: str = Depends(resolve_tenant)):
-    return db.list_threads(tenant_id, max(1, min(limit, 100)))
+def list_threads(
+    limit: int = 30,
+    project: str | None = None,
+    tenant_id: str = Depends(resolve_tenant),
+):
+    return db.list_threads(tenant_id, max(1, min(limit, 100)), project)
 
 
 @app.get("/decisions", dependencies=protected)
-def list_decisions(limit: int = 30, tenant_id: str = Depends(resolve_tenant)):
-    return db.list_decisions(tenant_id, max(1, min(limit, 100)))
+def list_decisions(
+    limit: int = 30,
+    project: str | None = None,
+    tenant_id: str = Depends(resolve_tenant),
+):
+    return db.list_decisions(tenant_id, max(1, min(limit, 100)), project)
+
+
+@app.get("/tenant/projects", dependencies=protected)
+def tenant_projects(tenant_id: str = Depends(resolve_tenant)):
+    """This tenant's own projects, oldest first. Never the operator's."""
+    return db.list_tenant_projects(tenant_id)
+
+
+@app.post("/tenant/projects", dependencies=protected, status_code=201)
+def create_tenant_project(req: ProjectRequest, tenant_id: str = Depends(resolve_tenant)):
+    name = _project_name(req.name)
+    if not name:
+        raise HTTPException(400, "Name the project")
+    if db.count_tenant_projects(tenant_id) >= MAX_TENANT_PROJECTS:
+        raise HTTPException(409, "Project limit reached")
+    return db.create_tenant_project(tenant_id, name)
+
+
+@app.patch("/tenant/projects/{slug}", dependencies=protected)
+def rename_tenant_project(
+    slug: str, req: ProjectRequest, tenant_id: str = Depends(resolve_tenant)
+):
+    name = _project_name(req.name)
+    if not name:
+        raise HTTPException(400, "Name the project")
+    row = db.rename_tenant_project(tenant_id, slug, name)
+    if not row:
+        raise HTTPException(404, "No such project")
+    return row
+
+
+@app.delete("/tenant/projects/{slug}", dependencies=protected)
+def delete_tenant_project(slug: str, tenant_id: str = Depends(resolve_tenant)):
+    """Deletes the project and everything filed under it, for this tenant."""
+    if not db.delete_tenant_project(tenant_id, slug):
+        raise HTTPException(404, "No such project")
+    return {"deleted": slug}
 
 
 @app.get("/threads/{thread_id}", dependencies=protected)
@@ -234,8 +308,7 @@ async def chat(
     req: ChatRequest, tenant_id: str = Depends(resolve_tenant)
 ) -> ChatResponse:
     """One pass of the decision protocol, within a durable conversation thread."""
-    if req.project and req.project not in PROJECTS:
-        raise HTTPException(400, "Unknown project")
+    project_label = _resolve_project(tenant_id, req.project)
 
     if req.lenses:
         unknown = [key for key in req.lenses if key not in AGENTS]
@@ -254,6 +327,7 @@ async def chat(
             req.project, memories, selected,
             [item.model_dump() for item in req.context or []],
             answer_mode=req.answer_mode,
+            project_label=project_label,
         ),
         history,
         req.message,
