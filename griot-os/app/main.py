@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -17,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from . import config, db, llm
 from .domain import AGENTS, PROJECT_NAMES, PROJECTS, STEPS
-from .security import require_api_key
+from .security import TENANT_HEADER, require_api_key, resolve_tenant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("griot")
@@ -50,11 +51,31 @@ app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 # --- Contracts ---------------------------------------------------------------
 
 
+class ContextItem(BaseModel):
+    """An excerpt from a document the client shared, chosen for this question
+    by the front end from the client's own documents."""
+
+    source: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=1200)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20000)
     project: str | None = None
     thread_id: str | None = None
     mode: str = "think"
+    # Specialist lenses chosen by the person asking, by key (see /agents).
+    # Without them GRIOT routes the question itself.
+    lenses: list[str] | None = Field(default=None, max_length=3)
+    # Per-request bounds a front end serving paying clients may set:
+    # reasoning effort, and a backstop on output tokens.
+    effort: Literal["low", "medium", "high"] | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1000, le=16000)
+    # Excerpts from the client's own documents that bear on this question.
+    context: list[ContextItem] | None = Field(default=None, max_length=12)
+    # How to answer this one question, chosen with a button: pressure-test it,
+    # find the root cause, or lay out a plan. Without it, the usual structure.
+    answer_mode: Literal["challenge", "diagnose", "plan"] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -105,6 +126,19 @@ def health(check_db: bool = True):
         "model": config.ANTHROPIC_MODEL,
         "model_ready": config.model_ready(),
         "auth_enabled": config.auth_enabled(),
+        # A front end that sells seats checks this before forwarding a client's
+        # message. A GRIOT without tenancy ignores X-Tenant-Id and files every
+        # client into one shared memory pool, so its absence must stop traffic
+        # rather than be discovered afterwards.
+        "tenancy": True,
+        "tenant_header": TENANT_HEADER,
+        # The client workspace: chosen lenses, per-request bounds, and the
+        # tenant-scoped /threads, /decisions and memory deletion below.
+        "workspace": True,
+        # POST /chat takes `context`: excerpts from the client's documents.
+        "documents": True,
+        # POST /chat takes `answer_mode`: challenge, diagnose or plan.
+        "modes": True,
     }
 
 
@@ -150,22 +184,45 @@ def protocol():
 
 
 @app.get("/memories", dependencies=protected)
-def get_memories(project: str | None = None):
-    return db.fetch_memories(project)
+def get_memories(
+    project: str | None = None,
+    limit: int | None = None,
+    tenant_id: str = Depends(resolve_tenant),
+):
+    # Without a limit, the same latest few a chat turn would see; a workspace
+    # listing asks for more (at most 200).
+    return db.fetch_memories(tenant_id, project, max(1, min(limit, 200)) if limit else None)
 
 
 @app.post("/memory", dependencies=protected)
-def create_memory(req: MemoryRequest):
+def create_memory(req: MemoryRequest, tenant_id: str = Depends(resolve_tenant)):
     if req.project not in PROJECTS and req.project != "global":
         raise HTTPException(400, "Unknown project")
     return db.insert_memory(
-        req.project, req.kind, req.title, req.content, req.confidence
+        tenant_id, req.project, req.kind, req.title, req.content, req.confidence
     )
 
 
+@app.delete("/memories/{memory_id}", dependencies=protected)
+def delete_memory(memory_id: str, tenant_id: str = Depends(resolve_tenant)):
+    if not db.delete_memory(tenant_id, memory_id):
+        raise HTTPException(404, "No such memory")
+    return {"deleted": memory_id}
+
+
+@app.get("/threads", dependencies=protected)
+def list_threads(limit: int = 30, tenant_id: str = Depends(resolve_tenant)):
+    return db.list_threads(tenant_id, max(1, min(limit, 100)))
+
+
+@app.get("/decisions", dependencies=protected)
+def list_decisions(limit: int = 30, tenant_id: str = Depends(resolve_tenant)):
+    return db.list_decisions(tenant_id, max(1, min(limit, 100)))
+
+
 @app.get("/threads/{thread_id}", dependencies=protected)
-def get_thread(thread_id: str):
-    history = db.fetch_history(thread_id, turns=100)
+def get_thread(thread_id: str, tenant_id: str = Depends(resolve_tenant)):
+    history = db.fetch_history(tenant_id, thread_id, turns=100)
     if not history:
         raise HTTPException(404, "No such thread")
     return {"thread_id": thread_id, "messages": history}
@@ -173,30 +230,46 @@ def get_thread(thread_id: str):
 
 @app.post("/chat", dependencies=protected, response_model=ChatResponse)
 @app.post("/api/chat", dependencies=protected, response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(
+    req: ChatRequest, tenant_id: str = Depends(resolve_tenant)
+) -> ChatResponse:
     """One pass of the decision protocol, within a durable conversation thread."""
     if req.project and req.project not in PROJECTS:
         raise HTTPException(400, "Unknown project")
 
+    if req.lenses:
+        unknown = [key for key in req.lenses if key not in AGENTS]
+        if unknown:
+            raise HTTPException(400, "Unknown lens: " + ", ".join(unknown[:3]))
+        selected = list(dict.fromkeys(req.lenses))
+    else:
+        selected = llm.route(req.message)
+
     thread_id = req.thread_id or db.new_id()
-    selected = llm.route(req.message)
-    memories = db.fetch_memories(req.project)
-    history = db.fetch_history(thread_id)
+    memories = db.fetch_context_memories(tenant_id, req.project)
+    history = db.fetch_history(tenant_id, thread_id)
 
     answer = await llm.analyse(
-        llm.build_system_prompt(req.project, memories, selected),
+        llm.build_system_prompt(
+            req.project, memories, selected,
+            [item.model_dump() for item in req.context or []],
+            answer_mode=req.answer_mode,
+        ),
         history,
         req.message,
+        effort=req.effort,
+        max_tokens=req.max_output_tokens,
     )
 
     # Persist the exchange before anything optional, so a failure in memory
     # distillation can never cost the conversation itself.
-    db.insert_message(thread_id, req.project, "user", req.message)
-    db.insert_message(thread_id, req.project, "assistant", answer)
+    db.insert_message(tenant_id, thread_id, req.project, "user", req.message)
+    db.insert_message(tenant_id, thread_id, req.project, "assistant", answer)
 
     decision_id = db.new_id()
     db.insert_decision(
-        decision_id, thread_id, req.project or "global", req.message, answer
+        tenant_id, decision_id, thread_id, req.project or "global",
+        req.message, answer,
     )
 
     memory_written = None
@@ -206,6 +279,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
         if distilled:
             db.insert_memory(
+                tenant_id,
                 req.project or "global",
                 distilled["kind"],
                 distilled["title"],
@@ -229,8 +303,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 @app.post("/approval", dependencies=protected)
 @app.post("/api/approval", dependencies=protected)
-def approval(req: ApprovalRequest):
+def approval(req: ApprovalRequest, tenant_id: str = Depends(resolve_tenant)):
     status = "approved" if req.approved else "rejected"
-    if not db.update_action(req.action_id, status):
+    if not db.update_action(tenant_id, req.action_id, status):
         raise HTTPException(404, "Action not found")
     return {"action_id": req.action_id, "status": status}

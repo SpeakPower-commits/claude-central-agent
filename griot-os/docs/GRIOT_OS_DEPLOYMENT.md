@@ -111,6 +111,44 @@ Audit the current product strategy. Separate facts from assumptions and tell me 
 
 The response should show the routed specialist agents and the memory count.
 
+## 6b. Tenancy — serving more than one client
+
+Every row in `memories`, `decisions`, `actions` and `messages` carries a
+`tenant_id`, and every query is scoped by it. A caller names its tenant with
+the `X-Tenant-Id` header:
+
+```bash
+curl -s -X POST https://<your-deployment>/chat \
+  -H 'Content-Type: application/json' \
+  -H "X-API-Key: $GRIOT_API_KEY" \
+  -H 'X-Tenant-Id: client-alpha' \
+  -d '{"message":"Audit our positioning."}' | jq
+```
+
+**Omit the header and you get the internal tenant** (`speakpower-internal`,
+override with `GRIOT_INTERNAL_TENANT`). That is the operator's own workspace,
+and it is where every row written before tenancy was backfilled — so your
+existing history keeps working with no change to how you call GRIOT.
+
+Three things to understand before putting a client behind this:
+
+1. **`X-Tenant-Id` is only as trustworthy as `X-API-Key`.** Anyone holding the
+   key can name any tenant. The key is therefore a *server-to-server* secret:
+   it belongs in the SpeakPower Studio Worker, which maps a signed-in person to
+   a tenant id. It must never reach a browser.
+2. **A thread id is not an authorisation.** `/threads/{id}` is scoped by
+   tenant, so another tenant's id returns 404 rather than the thread.
+3. **The migration runs itself.** On first use after deploying this version,
+   `tenant_id` is added to each table with a default that backfills existing
+   rows in one statement. It is idempotent; redeploys are no-ops.
+
+### Migration checklist
+
+- [ ] Take a Neon branch or backup before the first request to the new version
+- [ ] `/memories` with no `X-Tenant-Id` still returns your existing memories
+- [ ] `/memories` with `X-Tenant-Id: anything-else` returns `[]`
+- [ ] A thread created under one tenant 404s under another
+
 ## 7. Add a custom domain
 
 A clean production setup is:
@@ -134,6 +172,7 @@ Before calling GRIOT production-ready:
 - [ ] `/health` returns `status: ok` with `auth_enabled: true`
 - [ ] `/health` reports `memory: "postgres"`, not `sqlite`
 - [ ] A request without `X-API-Key` returns 401
+- [ ] Two different `X-Tenant-Id` values cannot see each other's memories
 - [ ] Claude API key works server-side (`model_ready: true`)
 - [ ] All `OPENAI_*` variables are deleted
 - [ ] Memory and threads survive a redeploy

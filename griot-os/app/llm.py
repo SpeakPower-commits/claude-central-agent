@@ -76,8 +76,44 @@ def route(text: str) -> list[str]:
     return list(dict.fromkeys(agents))
 
 
+# How the person asked GRIOT to answer, chosen with a button rather than
+# written into the question. Each replaces the default structure for one turn;
+# the evidence labels still apply.
+ANSWER_MODES = {
+    "challenge": (
+        "CHALLENGE. Pressure-test the idea instead of supporting it. Use this structure instead of the one above:\n"
+        "1. The idea at its strongest, in two sentences\n"
+        "2. The five weakest assumptions, ranked by how much damage each would do if wrong, each with a quick way to test it\n"
+        "3. The toughest objection a donor, investor or board would raise, and how to answer it\n"
+        "4. What would change your verdict\n"
+        "5. Verdict: proceed, rework or stop, and why"
+    ),
+    "diagnose": (
+        "DIAGNOSE. Find the root cause before suggesting any fix. Use this structure instead of the one above:\n"
+        "1. Symptoms: what is observed, kept apart from causes\n"
+        "2. Three likely root causes, ranked, each with the evidence for it, the evidence against it, "
+        "and the data that would confirm or rule it out\n"
+        "3. The cause to address first, and why\n"
+        "4. What not to fix yet\n"
+        "5. The quickest test to confirm the diagnosis this week"
+    ),
+    "plan": (
+        "PLAN. Turn the goal into an executable plan. Use this structure instead of the one above:\n"
+        "1. The goal as a measurable outcome with a deadline (use the client's own deadline when known)\n"
+        "2. Phases up to the deadline; in each, the actions, who owns them, by when, the resources needed and one KPI\n"
+        "3. The main risks, each with how to reduce it\n"
+        "4. What success looks like at the halfway point\n"
+        "5. The first step to take this week"
+    ),
+}
+
+
 def build_system_prompt(
-    project: str | None, memories: list[dict], agents: list[str]
+    project: str | None,
+    memories: list[dict],
+    agents: list[str],
+    documents: list[dict] | None = None,
+    answer_mode: str | None = None,
 ) -> str:
     """Operator instruction: identity, protocol and retrieved memory.
 
@@ -87,6 +123,18 @@ def build_system_prompt(
     memory_text = "\n".join(
         f"- [{item['confidence']}] {item['title']}: {item['content']}" for item in memories
     ) or "- No stored memories retrieved."
+    documents_text = ""
+    if documents:
+        documents_text = (
+            "\n\nCLIENT DOCUMENTS (excerpts from documents the client shared, chosen for this question). "
+            "Each is a FACT about what that document says, not proof about the world. "
+            "When you rely on one, cite its source in square brackets, e.g. [Annual report 2025, p. 4]:\n"
+            + "\n".join(f"- [{item['source']}] {item['text']}" for item in documents)
+        )
+
+    mode_text = ""
+    if answer_mode in ANSWER_MODES:
+        mode_text = "\n\nANSWER MODE: " + ANSWER_MODES[answer_mode]
 
     return f"""You are GRIOT OS, Thomas's strategic intelligence and execution agent.
 
@@ -102,7 +150,7 @@ Never present an inference or hypothesis as a fact. Challenge weak assumptions.
 Say plainly when you do not know. Never confuse activity with progress.
 
 STORED MEMORY:
-{memory_text}
+{memory_text}{documents_text}
 
 Structure every substantive response as:
 1. Diagnosis
@@ -112,7 +160,7 @@ Structure every substantive response as:
 5. Measurement
 6. Approval requirement
 
-For a short clarifying exchange, answer directly instead of forcing the structure."""
+For a short clarifying exchange, answer directly instead of forcing the structure.{mode_text}"""
 
 
 def _raise_for(exc: Exception) -> None:
@@ -140,10 +188,19 @@ def _text_of(response) -> str:
     ).strip()
 
 
+CUT_SHORT_NOTE = "\n\n_(This answer reached its length limit. Ask GRIOT to continue.)_"
+
+
 async def analyse(
-    system_prompt: str, history: list[dict], user_message: str
+    system_prompt: str, history: list[dict], user_message: str,
+    effort: str | None = None, max_tokens: int | None = None,
 ) -> str:
-    """Run one strategic-analysis turn, with prior turns replayed for context."""
+    """Run one strategic-analysis turn, with prior turns replayed for context.
+
+    `effort` and `max_tokens` let a front end serving paying clients bound the
+    cost of a turn. Effort is the lever that shortens reasoning; `max_tokens`
+    is only a backstop and can never exceed GRIOT's own configured ceiling.
+    """
     if not config.model_ready():
         return ORCHESTRATION_ONLY_NOTICE
 
@@ -154,10 +211,14 @@ async def analyse(
     ]
     messages.append({"role": "user", "content": user_message})
 
+    ceiling = min(max_tokens, config.MAX_OUTPUT_TOKENS) if max_tokens else config.MAX_OUTPUT_TOKENS
+    # Sent as a raw body field so it works whatever the installed SDK types.
+    extra = {"extra_body": {"output_config": {"effort": effort}}} if effort else {}
+
     try:
         response = await client().messages.create(
             model=config.ANTHROPIC_MODEL,
-            max_tokens=config.MAX_OUTPUT_TOKENS,
+            max_tokens=ceiling,
             thinking={"type": "adaptive"},
             system=[
                 {
@@ -167,6 +228,7 @@ async def analyse(
                 }
             ],
             messages=messages,
+            **extra,
         )
     except Exception as exc:  # narrowed immediately by _raise_for
         _raise_for(exc)
@@ -178,6 +240,9 @@ async def analyse(
     answer = _text_of(response)
     if not answer:
         raise HTTPException(502, "Claude returned no text content")
+    if response.stop_reason == "max_tokens":
+        # Say so rather than pass off a cut-off answer as complete.
+        answer += CUT_SHORT_NOTE
     return answer
 
 

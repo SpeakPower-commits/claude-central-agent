@@ -52,6 +52,19 @@ MEMORY_LIMIT = int(os.getenv("GRIOT_MEMORY_LIMIT", "8"))
 # is only tolerable locally -- see is_serverless() below.
 API_KEY = os.getenv("GRIOT_API_KEY", "").strip()
 
+# --- Tenancy -----------------------------------------------------------------
+
+# The tenant that rows written before multi-tenancy belong to, and the one a
+# caller gets when it sends no X-Tenant-Id. Keeping the operator's own history
+# under a named tenant rather than a null lets every query require a tenant_id
+# with no special case for "no tenant".
+INTERNAL_TENANT = os.getenv("GRIOT_INTERNAL_TENANT", "speakpower-internal").strip()
+
+# A tenant id is an opaque slug minted by the caller (the Studio Worker). It is
+# never shown to the model and never parsed for meaning -- it only has to be
+# stable, comparable, and safe to store.
+TENANT_ID_MAX_LENGTH = 64
+
 # --- Environment -------------------------------------------------------------
 
 

@@ -262,7 +262,7 @@ python3 -m uvicorn app.main:app --reload
 | `GET` | `/health` | Liveness, memory backend, active model |
 | `GET` | `/projects` | Registered project slugs |
 | `GET` | `/agents` | Specialist roster |
-| `GET` | `/memories?project=` | Recent memory, project + global scope |
+| `GET` | `/memories?project=&limit=` | Recent memory, project + global scope (`limit` up to 200) |
 | `POST` | `/memory` | Persist a memory with a confidence tag |
 | `GET` | `/threads/{id}` | Replay a stored conversation |
 | `POST` | `/chat` | Full decision-protocol pass, within a thread |
