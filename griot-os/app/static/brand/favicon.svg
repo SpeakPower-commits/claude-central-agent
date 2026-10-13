@@ -1,18 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <style>
-    .bubble { fill: #283142; }
-    .ray    { stroke: #C9A05C; }
-    .core   { fill: #C9A05C; }
-    @media (prefers-color-scheme: dark) {
-      .bubble { fill: #F2EFE9; }
-    }
-  </style>
-  <path class="bubble" d="M32 5 A25 25 0 1 1 31.9 5 Z"/>
-  <path class="bubble" d="M19 47 L15 61 L32 50 Z"/>
-  <g class="ray" stroke-width="4.2" stroke-linecap="round">
-    <line x1="32" y1="14" x2="32" y2="22"/>
-    <line x1="47" y1="20" x2="42" y2="26"/>
-    <line x1="17" y1="20" x2="22" y2="26"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GRIOT">
+  <defs>
+    <linearGradient id="gGold" x1="0.12" y1="0.02" x2="0.88" y2="0.98">
+      <stop offset="0" stop-color="#F2D67B"/>
+      <stop offset="0.5" stop-color="#E0BE55"/>
+      <stop offset="1" stop-color="#BA9622"/>
+    </linearGradient>
+  </defs>
+  <!-- Ring: starts 3 o'clock, clockwise the long way, 37deg gap at upper right -->
+  <path d="M 56.23 32 A 24.23 24.23 0 1 1 51.35 17.42"
+        fill="none" stroke="url(#gGold)" stroke-width="5.55" stroke-linecap="round"/>
+  <!-- Smile: the G's crossbar. Right tip runs into the ring, as in the original -->
+  <path d="M 38.8 37.0 Q 44.4 43.6 50.4 36.4"
+        fill="none" stroke="url(#gGold)" stroke-width="5.6" stroke-linecap="round"/>
+  <!-- Spectacles: heavy white frames, dark windows. Right lens is the wider one. -->
+  <g fill="none" stroke="#FAF7EF" stroke-width="2.75" stroke-linejoin="round">
+    <rect x="18.83" y="22.18" width="11.80" height="8.55" rx="2.1"/>
+    <rect x="35.05" y="22.18" width="13.79" height="8.55" rx="2.1"/>
   </g>
-  <circle class="core" cx="32" cy="37" r="11"/>
+  <path d="M 31.9 26.3 H 34.0" stroke="#FAF7EF" stroke-width="1.9" stroke-linecap="round"/>
 </svg>

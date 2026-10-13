@@ -124,6 +124,7 @@ async function ask() {
   message.value = '';
   send.disabled = true;
   send.textContent = 'Thinking…';
+  document.body.dataset.griot = 'thinking';
 
   try {
     const res = await fetch('/chat', {
@@ -165,6 +166,7 @@ async function ask() {
   } finally {
     send.disabled = false;
     send.textContent = 'Ask GRIOT';
+    document.body.dataset.griot = 'idle';
   }
 }
 
