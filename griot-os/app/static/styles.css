@@ -422,16 +422,52 @@ button.ghost:hover {
 
 /* --- Brand lockup and attribution ------------------------------------------ */
 
-.brand-row {
+/* The GRIOT Signature introduces the agent once per screen. The halo behind it
+   is inert until the agent is working, when it radiates. */
+.signature-wrap {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 11px;
+  justify-content: center;
+  margin-bottom: 14px;
 }
 
-.brand-row .mark {
-  flex: none;
-  width: 34px;
-  height: 34px;
+.signature-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 2px solid var(--gold-500);
+  opacity: 0;
+}
+
+.signature {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  display: block;
+  filter: drop-shadow(0 0 18px rgba(224, 190, 85, 0.22));
+}
+
+body[data-griot="thinking"] .signature-wrap::before {
+  animation: griot-radiate 1.9s ease-out infinite;
+}
+
+body[data-griot="thinking"] .signature {
+  animation: griot-breathe 1.9s ease-in-out infinite;
+}
+
+@keyframes griot-radiate {
+  0%   { opacity: 0.55; transform: scale(0.93); }
+  100% { opacity: 0;    transform: scale(1.22); }
+}
+
+@keyframes griot-breathe {
+  0%, 100% { filter: drop-shadow(0 0 18px rgba(224, 190, 85, 0.22)); }
+  50%      { filter: drop-shadow(0 0 30px rgba(242, 214, 123, 0.55)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signature-wrap::before, .signature { animation: none !important; }
 }
 
 .sidebar-foot {
@@ -463,5 +499,6 @@ button.ghost:hover {
   /* The footer block is part of the hidden sidebar body on narrow screens;
      the brand row stays so the mark is still visible. */
   .sidebar .sidebar-foot { display: none; }
-  .brand-row .mark { width: 26px; height: 26px; }
+  .signature { width: 40px; height: 40px; }
+  .signature-wrap { margin-bottom: 0; }
 }
