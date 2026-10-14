@@ -426,9 +426,9 @@ def test_profile_memories_stay_in_every_turn(client, monkeypatch):
     seen = {}
     real = llm.build_system_prompt
 
-    def spy(project, memories, agents, documents=None, answer_mode=None):
+    def spy(project, memories, agents, documents=None, **kwargs):
         seen["titles"] = [m["title"] for m in memories]
-        return real(project, memories, agents, documents, answer_mode=answer_mode)
+        return real(project, memories, agents, documents, **kwargs)
 
     monkeypatch.setattr(llm, "build_system_prompt", spy)
     r = client.post("/chat", json={"message": "What should I do first?"}, headers=tenant)
@@ -574,3 +574,158 @@ def test_pre_tenancy_rows_are_backfilled(tmp_path, monkeypatch):
     assert [r["title"] for r in rows] == ["Written before tenancy"]
     assert rows[0]["tenant_id"] == config.INTERNAL_TENANT
     assert db.fetch_memories("client-alpha") == []
+
+
+
+# --- A client's own projects --------------------------------------------------
+#
+# Written from the other tenant's side as well: a client's project is theirs
+# alone, and deleting one removes only what was filed under it.
+
+import re  # noqa: E402
+
+SLUG = re.compile(r"p-[0-9a-f]{8}")
+
+
+def _new_project(client, headers, name):
+    r = client.post("/tenant/projects", json={"name": name}, headers=headers)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_health_advertises_client_projects(client):
+    assert client.get("/health?check_db=false").json()["projects"] is True
+
+
+def test_a_tenant_creates_and_lists_its_own_projects(client):
+    tenant = {**AUTH, "X-Tenant-Id": "client-projects"}
+    made = _new_project(client, tenant, "  Coffee   export pitch ")
+    assert SLUG.fullmatch(made["slug"])
+    assert made["name"] == "Coffee export pitch"
+
+    mine = client.get("/tenant/projects", headers=tenant).json()
+    assert [p["slug"] for p in mine] == [made["slug"]]
+    theirs = client.get("/tenant/projects", headers=TENANT_B).json()
+    assert made["slug"] not in [p["slug"] for p in theirs]
+    # The operator's ventures are never listed as a client's projects.
+    assert not any(p["slug"] in config_projects() for p in mine)
+
+
+def config_projects():
+    from app.domain import PROJECTS
+    return set(PROJECTS)
+
+
+def test_project_names_are_required_and_bounded(client):
+    tenant = {**AUTH, "X-Tenant-Id": "client-names"}
+    assert client.post("/tenant/projects", json={"name": "   "}, headers=tenant).status_code == 400
+    assert client.post("/tenant/projects", json={"name": "x" * 61}, headers=tenant).status_code == 422
+    assert client.post("/tenant/projects", json={}, headers=tenant).status_code == 422
+
+
+def test_a_tenant_keeps_at_most_twenty_projects(client):
+    tenant = {**AUTH, "X-Tenant-Id": "client-many"}
+    for i in range(20):
+        _new_project(client, tenant, f"Project {i}")
+    r = client.post("/tenant/projects", json={"name": "One too many"}, headers=tenant)
+    assert r.status_code == 409
+    # Another tenant is unaffected.
+    _new_project(client, {**AUTH, "X-Tenant-Id": "client-few"}, "First")
+
+
+def test_chat_and_memory_accept_only_the_tenants_own_project(client):
+    mine = _new_project(client, TENANT_A, "Alpha launch")["slug"]
+
+    ok = client.post("/chat", json={"message": "Alpha project question", "project": mine}, headers=TENANT_A)
+    assert ok.status_code == 200
+    assert ok.json()["project"] == mine
+    assert client.post("/memory", json=_memory(mine, "Alpha project fact"), headers=TENANT_A).status_code == 200
+
+    # Holding another tenant's slug is not permission to use it.
+    assert client.post("/chat", json={"message": "x", "project": mine}, headers=TENANT_B).status_code == 400
+    assert client.post("/memory", json=_memory(mine, "Beta sneaks in"), headers=TENANT_B).status_code == 400
+    # A made-up slug in the right shape is refused too.
+    assert client.post("/chat", json={"message": "x", "project": "p-00000000"}, headers=TENANT_A).status_code == 400
+    # 'global' stays available to everyone, within their own tenant.
+    assert client.post("/chat", json={"message": "Alpha global question", "project": "global"}, headers=TENANT_A).status_code == 200
+
+
+def test_the_prompt_names_the_clients_project_not_its_slug(client, monkeypatch):
+    mine = _new_project(client, TENANT_A, "Donor pitch 2027")["slug"]
+    seen = {}
+    real = llm.build_system_prompt
+
+    def spy(*args, **kwargs):
+        seen["prompt"] = real(*args, **kwargs)
+        return seen["prompt"]
+
+    monkeypatch.setattr(llm, "build_system_prompt", spy)
+    client.post("/chat", json={"message": "Where do we start?", "project": mine}, headers=TENANT_A)
+    assert '"Donor pitch 2027" (the client\'s own project)' in seen["prompt"]
+    assert mine not in seen["prompt"]
+
+
+def test_threads_and_decisions_filter_by_project(client):
+    tenant = {**AUTH, "X-Tenant-Id": "client-filter"}
+    p1 = _new_project(client, tenant, "One")["slug"]
+    in_p1 = client.post("/chat", json={"message": "Filed under one", "project": p1}, headers=tenant).json()
+    in_global = client.post("/chat", json={"message": "Filed nowhere in particular"}, headers=tenant).json()
+
+    threads = client.get(f"/threads?project={p1}", headers=tenant).json()
+    assert [t["thread_id"] for t in threads] == [in_p1["thread_id"]]
+    assert threads[0]["project"] == p1
+    general = client.get("/threads?project=global", headers=tenant).json()
+    assert [t["thread_id"] for t in general] == [in_global["thread_id"]]
+    assert general[0]["project"] == "global"
+    assert len(client.get("/threads", headers=tenant).json()) == 2
+
+    decisions = client.get(f"/decisions?project={p1}", headers=tenant).json()
+    assert [d["request"] for d in decisions] == ["Filed under one"]
+    assert [d["request"] for d in client.get("/decisions?project=global", headers=tenant).json()] == [
+        "Filed nowhere in particular"
+    ]
+    # Another tenant filtering by this slug sees nothing.
+    assert client.get(f"/threads?project={p1}", headers=TENANT_B).json() == []
+    assert client.get(f"/decisions?project={p1}", headers=TENANT_B).json() == []
+
+
+def test_only_the_owner_can_rename_a_project(client):
+    slug = _new_project(client, TENANT_A, "Old name")["slug"]
+    assert client.patch(f"/tenant/projects/{slug}", json={"name": "Taken"}, headers=TENANT_B).status_code == 404
+    r = client.patch(f"/tenant/projects/{slug}", json={"name": " New   name "}, headers=TENANT_A)
+    assert r.status_code == 200 and r.json()["name"] == "New name"
+    assert client.patch("/tenant/projects/p-00000000", json={"name": "x"}, headers=TENANT_A).status_code == 404
+
+
+def test_deleting_a_project_removes_only_what_was_filed_under_it(client):
+    tenant = {**AUTH, "X-Tenant-Id": "client-delete"}
+    keep = _new_project(client, tenant, "Keep")["slug"]
+    drop = _new_project(client, tenant, "Drop")["slug"]
+    for slug in (keep, drop):
+        client.post("/chat", json={"message": f"Question in {slug}", "project": slug}, headers=tenant)
+        client.post("/memory", json=_memory(slug, f"Fact in {slug}"), headers=tenant)
+    client.post("/memory", json=_memory("global", "General fact"), headers=tenant)
+    dropped_thread = client.get(f"/threads?project={drop}", headers=tenant).json()[0]["thread_id"]
+    # Another tenant's row filed under the same slug (slugs are only unique
+    # within a tenant) must survive this tenant's delete.
+    from app import db
+    db.insert_memory("client-other", drop, "fact", "Other tenant, same slug", "body", "fact")
+
+    # Not another tenant's to delete.
+    assert client.delete(f"/tenant/projects/{drop}", headers=TENANT_B).status_code == 404
+    assert client.get(f"/threads?project={drop}", headers=tenant).json() != []
+
+    assert client.delete(f"/tenant/projects/{drop}", headers=tenant).status_code == 200
+    assert client.delete(f"/tenant/projects/{drop}", headers=tenant).status_code == 404
+    assert [p["slug"] for p in client.get("/tenant/projects", headers=tenant).json()] == [keep]
+
+    assert client.get(f"/threads?project={drop}", headers=tenant).json() == []
+    assert client.get(f"/decisions?project={drop}", headers=tenant).json() == []
+    assert client.get(f"/threads/{dropped_thread}", headers=tenant).status_code == 404
+    titles = [m["title"] for m in client.get("/memories?limit=200", headers=tenant).json()]
+    assert f"Fact in {drop}" not in titles
+    assert f"Fact in {keep}" in titles and "General fact" in titles
+    assert len(client.get(f"/threads?project={keep}", headers=tenant).json()) == 1
+    assert [m["title"] for m in db.fetch_memories("client-other", drop)] == ["Other tenant, same slug"]
+    # Once deleted, the slug can no longer be used.
+    assert client.post("/chat", json={"message": "x", "project": drop}, headers=tenant).status_code == 400

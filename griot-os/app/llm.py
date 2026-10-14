@@ -114,12 +114,19 @@ def build_system_prompt(
     agents: list[str],
     documents: list[dict] | None = None,
     answer_mode: str | None = None,
+    project_label: str | None = None,
 ) -> str:
     """Operator instruction: identity, protocol and retrieved memory.
 
     Deliberately separate from the user's request, which travels as a user turn.
+    `project_label` is the name a client gave one of their own projects; it is
+    shown in place of the slug, quoted as the client's own words.
     """
     project_context = PROJECTS.get(project or "other", "Cross-project strategic work")
+    project_line = project or "cross-project"
+    if project_label:
+        project_line = f'"{project_label}" (the client\'s own project)'
+        project_context = "A project the client set up and named themselves."
     memory_text = "\n".join(
         f"- [{item['confidence']}] {item['title']}: {item['content']}" for item in memories
     ) or "- No stored memories retrieved."
@@ -140,7 +147,7 @@ def build_system_prompt(
 
 MISSION: Think like a strategist. Validate like a data scientist. Build like a software engineer. Communicate like a storyteller. Operate like an owner.
 
-PROJECT: {project or 'cross-project'}
+PROJECT: {project_line}
 CONTEXT: {project_context}
 ACTIVE AGENTS: {', '.join(AGENTS[key] for key in agents)}
 DECISION PROTOCOL: {' → '.join(STEPS)}

@@ -92,6 +92,17 @@ SCHEMA_SQL = [
         created_at text not null
     )
     """,
+    # A client's own projects. Created with tenant_id from the start, so no
+    # backfill applies; the primary key leads with it, as every index does.
+    """
+    create table if not exists tenant_projects (
+        tenant_id text not null,
+        slug text not null,
+        name text not null,
+        created_at text not null,
+        primary key (tenant_id, slug)
+    )
+    """,
 ]
 
 # Indexes are applied separately, and strictly after _add_tenant_column: every
@@ -400,35 +411,53 @@ def update_action(tenant_id: str, action_id: str, status: str) -> bool:
     ) > 0
 
 
-def list_threads(tenant_id: str, limit: int = 30) -> list[dict]:
+def list_threads(
+    tenant_id: str, limit: int = 30, project: str | None = None
+) -> list[dict]:
     """One tenant's conversations, most recent first.
 
-    Each row carries the first question asked, so a front end can list
-    conversations without replaying them. Another tenant's threads never
-    appear: every row is filtered by tenant before it is grouped.
+    Each row carries the first question asked and the project it was filed
+    under, so a front end can list conversations without replaying them.
+    With `project`, only that project's conversations ('global' covers
+    messages filed without one). Another tenant's threads never appear:
+    every row is filtered by tenant before it is grouped.
     """
+    where = "m.tenant_id = ?"
+    params: tuple = (tenant_id,)
+    if project:
+        where += " and coalesce(m.project, 'global') = ?"
+        params += (project,)
     rows = query(
         "select m.thread_id as thread_id, min(m.created_at) as started_at, "
         "max(m.created_at) as last_at, count(*) as messages, "
+        "min(coalesce(m.project, 'global')) as project, "
         "(select f.content from messages f where f.tenant_id = m.tenant_id "
         "and f.thread_id = m.thread_id and f.role = 'user' "
         "order by f.created_at asc limit 1) as first_question "
-        "from messages m where m.tenant_id = ? "
+        f"from messages m where {where} "
         "group by m.tenant_id, m.thread_id order by last_at desc limit ?",
-        (tenant_id, limit),
+        params + (limit,),
     )
     for row in rows:
         row["first_question"] = (row.get("first_question") or "")[:200]
     return rows
 
 
-def list_decisions(tenant_id: str, limit: int = 30) -> list[dict]:
+def list_decisions(
+    tenant_id: str, limit: int = 30, project: str | None = None
+) -> list[dict]:
     """One tenant's decision log, newest first, with a short excerpt of each
-    recommendation; the full answer stays in its conversation."""
+    recommendation; the full answer stays in its conversation. With
+    `project`, only the decisions filed under it."""
+    where = "tenant_id = ?"
+    params: tuple = (tenant_id,)
+    if project:
+        where += " and project = ?"
+        params += (project,)
     rows = query(
         "select id, thread_id, project, request, recommendation, status, created_at "
-        "from decisions where tenant_id = ? order by created_at desc limit ?",
-        (tenant_id, limit),
+        f"from decisions where {where} order by created_at desc limit ?",
+        params + (limit,),
     )
     for row in rows:
         row["request"] = (row.get("request") or "")[:500]
@@ -443,3 +472,83 @@ def delete_memory(tenant_id: str, memory_id: str) -> bool:
         "delete from memories where id = ? and tenant_id = ?",
         (memory_id, tenant_id),
     ) > 0
+
+
+# --- A client's own projects --------------------------------------------------
+#
+# The slug is generated here: "p-" and eight hex characters. The operator's
+# ventures are plain words, so a client's project can never collide with one
+# of them, or name one. Every helper is scoped by tenant: another tenant's
+# slug reads exactly like a missing one.
+
+TENANT_PROJECT_SLUG = re.compile(r"p-[0-9a-f]{8}")
+
+
+def list_tenant_projects(tenant_id: str) -> list[dict]:
+    return query(
+        "select slug, name, created_at from tenant_projects "
+        "where tenant_id = ? order by created_at, slug",
+        (tenant_id,),
+    )
+
+
+def get_tenant_project(tenant_id: str, slug: str | None) -> dict | None:
+    if not TENANT_PROJECT_SLUG.fullmatch(slug or ""):
+        return None
+    rows = query(
+        "select slug, name, created_at from tenant_projects "
+        "where tenant_id = ? and slug = ?",
+        (tenant_id, slug),
+    )
+    return rows[0] if rows else None
+
+
+def count_tenant_projects(tenant_id: str) -> int:
+    rows = query(
+        "select count(*) as n from tenant_projects where tenant_id = ?", (tenant_id,)
+    )
+    return int(rows[0]["n"]) if rows else 0
+
+
+def create_tenant_project(tenant_id: str, name: str) -> dict:
+    for _ in range(5):
+        slug = "p-" + uuid.uuid4().hex[:8]
+        if get_tenant_project(tenant_id, slug):
+            continue
+        row = {"slug": slug, "name": name, "created_at": now()}
+        execute(
+            "insert into tenant_projects (tenant_id, slug, name, created_at) "
+            "values (?, ?, ?, ?)",
+            (tenant_id, slug, name, row["created_at"]),
+        )
+        return row
+    raise RuntimeError("Could not allocate a project slug")
+
+
+def rename_tenant_project(tenant_id: str, slug: str, name: str) -> dict | None:
+    if not get_tenant_project(tenant_id, slug):
+        return None
+    execute(
+        "update tenant_projects set name = ? where tenant_id = ? and slug = ?",
+        (name, tenant_id, slug),
+    )
+    return get_tenant_project(tenant_id, slug)
+
+
+def delete_tenant_project(tenant_id: str, slug: str) -> bool:
+    """Delete one of a tenant's projects and everything filed under it:
+    its conversations, memories, decisions and actions. One transaction, and
+    only this tenant's rows; returns False for an unknown or foreign slug."""
+    if not get_tenant_project(tenant_id, slug):
+        return False
+    with connection() as conn:
+        for table in TENANT_TABLES:
+            conn.execute(
+                _sql(f"delete from {table} where tenant_id = ? and project = ?"),
+                (tenant_id, slug),
+            )
+        conn.execute(
+            _sql("delete from tenant_projects where tenant_id = ? and slug = ?"),
+            (tenant_id, slug),
+        )
+    return True
