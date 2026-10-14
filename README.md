@@ -23,7 +23,7 @@
 ![Postgres](https://img.shields.io/badge/Postgres-Neon-283142?style=for-the-badge&logo=postgresql&logoColor=E0BE55)
 <br/>
 ![Status](https://img.shields.io/badge/status-live-2E9E68?style=flat-square)
-![Tests](https://img.shields.io/badge/tests-59%20passing-2E9E68?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-68%20passing-2E9E68?style=flat-square)
 ![Multi-tenant](https://img.shields.io/badge/multi--tenant-yes-E0BE55?style=flat-square)
 
 **A product of SpeakPower**
@@ -238,7 +238,7 @@ A record of the work, newest first.
 - **API-key authentication** on every route that reads or spends.
 - **Routing fixed**: substring matching sent "how do I make our customers happy" to DevAgent,
   because "app" occurs inside "happy". Now matched on word boundaries.
-- **59 smoke tests** covering auth, tenancy, threads, routing and the startup guards.
+- **68 smoke tests** covering auth, tenancy, threads, routing and the startup guards.
 
 ---
 
@@ -255,7 +255,7 @@ A record of the work, newest first.
 | Client documents with citations | ✅ | Passed per request, cited by source |
 | API-key authentication | ✅ | Constant-time compare |
 | Serverless startup guards | ✅ | Refuses to boot misconfigured |
-| Smoke tests | ✅ | 59 passing |
+| Smoke tests | ✅ | 68 passing |
 | Streaming responses | ❌ | A long answer still arrives all at once |
 | Approval gate (`/approval`) | ❌ | Endpoint exists; no producer writes `actions` |
 | Tool use / web research | ❌ | No tool layer yet |
