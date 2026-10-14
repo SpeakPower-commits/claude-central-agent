@@ -1,5 +1,11 @@
 <div align="center">
 
+<img src="docs/speakpower-logo.png" alt="SpeakPower" width="130" />
+
+### SpeakPower
+
+<br/>
+
 <img src="griot-os/app/static/brand/griot-signature.png" alt="GRIOT" width="190" />
 
 # GRIOT OS
@@ -28,7 +34,25 @@
 
 ## The marks
 
-GRIOT carries two marks with two different jobs. They are never used in the same role.
+Three marks, three jobs. The hierarchy is deliberate and nothing here is interchangeable.
+
+<table>
+<tr>
+<td colspan="2" align="center">
+<img src="docs/speakpower-logo.png" alt="SpeakPower" width="150" /><br/><br/>
+<strong>SpeakPower</strong><br/>
+<sub>THE PARENT BRAND</sub>
+</td>
+</tr>
+<tr>
+<td colspan="2" valign="top">
+The company. GRIOT OS is a SpeakPower product and is presented as one — the logo leads
+this README, and the attribution sits in the app sidebar and in the page metadata.
+This mark is never replaced by a GRIOT mark; the two sit in a hierarchy, parent above
+product.
+</td>
+</tr>
+</table>
 
 <table>
 <tr>
@@ -45,8 +69,9 @@ GRIOT carries two marks with two different jobs. They are never used in the same
 </tr>
 <tr>
 <td valign="top">
-Introduces GRIOT. It is the only mark used for branding — the browser tab, the
-app icons, the sidebar, the social card, decks and merchandise.
+Introduces GRIOT. It is the only <em>GRIOT</em> mark used for branding — the
+browser tab, the app icons, the sidebar, the social card, decks and merchandise.
+It identifies the product; it does not stand in for SpeakPower.
 <br/><br/>
 At tab sizes the medallion is cropped past its decorative band so the face
 survives the downscale, with the gold rim keeping its circular silhouette. Same
@@ -163,9 +188,12 @@ Claims are tagged by epistemic status so assumptions never masquerade as evidenc
 
 A record of the work, newest first.
 
-### Brand — one mark, and a face
+### Brand — the parent, one mark, and a face
 
-- **The Signature is the only branding mark.** Tab icon, app icons, sidebar, social card. A
+- **SpeakPower leads.** The parent logo opens this README and the attribution carries into the
+  app sidebar and the page metadata. GRIOT's marks identify the product beneath it; they never
+  replace it.
+- **The Signature is GRIOT's only branding mark.** Tab icon, app icons, sidebar, social card. A
   straight downscale failed — at 32px the decorative band is noise, at 16px a dot — so the
   small sizes crop past the band with the gold rim retained.
 - **The G moved inside the product**, as the avatar beside GRIOT's replies. It blinks, and
