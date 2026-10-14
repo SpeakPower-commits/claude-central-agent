@@ -1,16 +1,18 @@
 <div align="center">
 
-<img src="docs/speakpower-logo.png" alt="SpeakPower" width="130" />
-
-### SpeakPower
-
-<br/>
-
-<img src="griot-os/app/static/brand/griot-signature.png" alt="GRIOT" width="190" />
+<img src="docs/speakpower-logo.png" alt="SpeakPower" width="140" />
 
 # GRIOT OS
 
 **Strategic intelligence &amp; execution agent**
+
+<img src="griot-os/app/static/brand/griot-signature.png" alt="The GRIOT Signature" width="150" />
+&nbsp;&nbsp;&nbsp;
+<img src="griot-os/app/static/brand/griot-g.png" alt="The G" width="110" />
+
+<sub>THE SIGNATURE — the brand mark &nbsp;·&nbsp; THE G — the agent's face, in-app only</sub>
+
+<br/>
 
 *Think like a strategist. Validate like a data scientist. Build like a software engineer.*<br/>
 *Communicate like a storyteller. Operate like an owner.*
@@ -34,60 +36,19 @@
 
 ## The marks
 
-Three marks, three jobs. The hierarchy is deliberate and nothing here is interchangeable.
+Three marks, three jobs, shown once each above. Nothing here is interchangeable.
 
-<table>
-<tr>
-<td colspan="2" align="center">
-<img src="docs/speakpower-logo.png" alt="SpeakPower" width="150" /><br/><br/>
-<strong>SpeakPower</strong><br/>
-<sub>THE PARENT BRAND</sub>
-</td>
-</tr>
-<tr>
-<td colspan="2" valign="top">
-The company. GRIOT OS is a SpeakPower product and is presented as one — the logo leads
-this README, and the attribution sits in the app sidebar and in the page metadata.
-This mark is never replaced by a GRIOT mark; the two sit in a hierarchy, parent above
-product.
-</td>
-</tr>
-</table>
+| Mark | Role | Where it is used |
+|:--|:--|:--|
+| **SpeakPower** | The parent brand | Opens and closes this README; the attribution in the app sidebar and page metadata. Never replaced by a GRIOT mark |
+| **The GRIOT Signature** | GRIOT's brand mark | Browser tab, app icons, app sidebar, social card, decks. Identifies the product; does not stand in for SpeakPower |
+| **The G** | The agent's face | Inside the app only, as the avatar beside GRIOT's replies. Not a logo, and on no branding surface |
 
-<table>
-<tr>
-<td width="50%" align="center">
-<img src="griot-os/app/static/brand/griot-signature.png" alt="The GRIOT Signature" width="200" /><br/><br/>
-<strong>The GRIOT Signature</strong><br/>
-<sub>THE BRAND MARK</sub>
-</td>
-<td width="50%" align="center">
-<img src="griot-os/app/static/brand/griot-g.png" alt="The G symbol" width="150" /><br/><br/>
-<strong>The G</strong><br/>
-<sub>THE AGENT'S FACE</sub>
-</td>
-</tr>
-<tr>
-<td valign="top">
-Introduces GRIOT. It is the only <em>GRIOT</em> mark used for branding — the
-browser tab, the app icons, the sidebar, the social card, decks and merchandise.
-It identifies the product; it does not stand in for SpeakPower.
-<br/><br/>
-At tab sizes the medallion is cropped past its decorative band so the face
-survives the downscale, with the gold rim keeping its circular silhouette. Same
-mark, drawn for the size it is used at.
-</td>
-<td valign="top">
-Lives inside the product only, as the avatar beside everything GRIOT says.
-<br/><br/>
-It blinks on its own, and blinks faster with its smile moving while the agent is
-working. It sits on a navy disc so the white spectacle frames read against a
-light reply bubble.
-<br/><br/>
-It is <strong>not</strong> a logo and does not appear in any branding surface.
-</td>
-</tr>
-</table>
+At tab sizes the Signature is cropped past its decorative band so the face survives the
+downscale, with the gold rim keeping its circular silhouette — the same mark, drawn for the
+size it is used at. The G blinks on its own and blinks faster with its smile moving while the
+agent is working; it sits on a navy disc so the white spectacle frames read against a light
+reply bubble.
 
 ---
 
@@ -367,9 +328,11 @@ Agent-facing engineering rules: [`AGENTS.md`](AGENTS.md) · Persona and tone: [`
 
 <div align="center">
 
-<img src="griot-os/app/static/brand/griot-g.png" alt="" width="54" />
+<img src="docs/speakpower-logo.png" alt="SpeakPower" width="100" />
 
-<sub>Built by **Thomas Otieno** · A product of **SpeakPower**</sub><br/>
+**Built by SpeakPower**
+
+<sub>GRIOT OS is a product of **SpeakPower** · Thomas Otieno</sub><br/>
 <sub><i>Articulate is key.</i></sub>
 
 </div>
