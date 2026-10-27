@@ -1,0 +1,8 @@
+# Working files produced by a run. Never committed: these are client footage
+# and finished renders, sometimes gigabytes of them.
+workspace/
+outputs/
+*.wav
+*.mp4
+*.srt
+.env

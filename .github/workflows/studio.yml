@@ -1,0 +1,119 @@
+name: Studio — edit a recording
+
+# Run by hand from the Actions tab only. There is deliberately no push or
+# pull_request trigger: this workflow spends API credits and runner minutes,
+# so it must never fire on its own. workflow_dispatch also means only people
+# with write access to this repository can start it.
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Link to the recording (Google Drive, YouTube, Dropbox — sharing set to 'anyone with the link')"
+        required: true
+        type: string
+      context:
+        description: "What is this? e.g. 'Interview with a church media director about donor communication'"
+        required: false
+        type: string
+        default: ""
+      clips:
+        description: "How many shorts to aim for"
+        required: false
+        type: choice
+        default: "8"
+        options: ["4", "6", "8", "10", "12"]
+      style:
+        description: "Framing — blur keeps the whole picture, crop fills the screen"
+        required: false
+        type: choice
+        default: "blur"
+        options: ["blur", "crop"]
+      include_episode:
+        description: "Also produce the cleaned full episode (slow, and a large download)"
+        required: false
+        type: boolean
+        default: false
+
+# Two runs at once would race over the same cache and burn minutes twice.
+concurrency:
+  group: studio-${{ github.actor }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    # A long podcast with the full episode enabled can genuinely take hours.
+    timeout-minutes: 300
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: studio/requirements.txt
+
+      - name: Confirm ffmpeg is present
+        # ffmpeg ships on GitHub's Ubuntu runners, so this is a check rather
+        # than an install. It fails loudly here instead of mid-render.
+        run: ffmpeg -version | head -1
+
+      - name: Install dependencies
+        working-directory: studio
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Edit the recording
+        working-directory: studio
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          STUDIO_MODEL: ${{ vars.STUDIO_MODEL || 'claude-sonnet-5-5' }}
+          STUDIO_WHISPER_MODEL: ${{ vars.STUDIO_WHISPER_MODEL || 'small' }}
+        run: |
+          python run.py \
+            --source "${{ inputs.source }}" \
+            --context "${{ inputs.context }}" \
+            --clips "${{ inputs.clips }}" \
+            --style "${{ inputs.style }}" \
+            --out "$GITHUB_WORKSPACE/studio-output" \
+            ${{ inputs.include_episode == true && ' ' || '--skip-episode' }}
+
+      - name: Put the summary on the run page
+        if: always()
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/studio-output/SUMMARY.md" ]; then
+            cat "$GITHUB_WORKSPACE/studio-output/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No summary was produced — check the log above for what failed." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the shorts and text
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-shorts
+          # Everything except the full episode, which is uploaded separately so
+          # a large file cannot stop you getting the clips.
+          path: |
+            studio-output/**
+            !studio-output/episode-cleaned.mp4
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload the cleaned episode
+        if: always() && inputs.include_episode
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-episode
+          path: studio-output/episode-cleaned.mp4
+          if-no-files-found: ignore
+          retention-days: 7
