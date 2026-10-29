@@ -31,12 +31,19 @@ class MediaError(RuntimeError):
 
 
 def ensure_ffmpeg() -> None:
-    for tool in ("ffmpeg", "ffprobe"):
-        if shutil.which(tool) is None:
-            raise MediaError(
-                f"{tool} is not installed on the server. The Docker image "
-                "installs it; if you deployed without Docker, add ffmpeg."
-            )
+    """Fail with the name of the binary that is actually missing.
+
+    ffmpeg and ffprobe normally install together, so naming the missing one
+    distinguishes "nothing is installed" from a half-installed image.
+    """
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    if missing:
+        raise MediaError(
+            f"{' and '.join(missing)} not found on this machine. In GitHub "
+            "Actions the 'Install ffmpeg' step should have provided it -- "
+            "check whether that step failed. Running this yourself: "
+            "'sudo apt install ffmpeg' on Linux, 'brew install ffmpeg' on macOS."
+        )
 
 
 def _run(command: list[str], what: str) -> subprocess.CompletedProcess[str]:
