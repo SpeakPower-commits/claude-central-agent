@@ -11,6 +11,17 @@ on:
         description: "Link to the recording (Google Drive, YouTube, Dropbox — sharing set to 'anyone with the link')"
         required: true
         type: string
+      mode:
+        description: "What to do. transcribe = get the words out (FREE). cut = render the clip list below (FREE). auto = Claude picks the moments (NEEDS PAID API CREDIT)"
+        required: true
+        type: choice
+        default: "transcribe"
+        options: ["transcribe", "cut", "auto"]
+      clip_list:
+        description: "For 'cut' mode: one clip per line - start end title. e.g. 00:03:12 00:03:58 Why NGOs waste their comms budget"
+        required: false
+        type: string
+        default: ""
       context:
         description: "What is this? e.g. 'Interview with a church media director about donor communication'"
         required: false
@@ -97,6 +108,8 @@ jobs:
           INPUT_CONTEXT: ${{ inputs.context }}
           INPUT_CLIPS: ${{ inputs.clips }}
           INPUT_STYLE: ${{ inputs.style }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_CLIP_LIST: ${{ inputs.clip_list }}
           # A workflow_dispatch boolean can arrive as the STRING "false",
           # which is truthy, so this compares against both forms. Getting it
           # wrong silently inverts whether the long edit is produced.
@@ -108,12 +121,24 @@ jobs:
             EPISODE_FLAG="--skip-episode"
           fi
           echo "Episode flag: ${EPISODE_FLAG:-<producing full episode>}"
+
+          # The clip list goes via a file rather than the command line: it can
+          # be long, and writing it out keeps it out of argv entirely.
+          CLIPS_FLAG=""
+          if [ -n "${INPUT_CLIP_LIST:-}" ]; then
+            printf '%s\n' "$INPUT_CLIP_LIST" > "$RUNNER_TEMP/clips.txt"
+            CLIPS_FLAG="--clips-file $RUNNER_TEMP/clips.txt"
+            echo "Clip list supplied ($(wc -c < "$RUNNER_TEMP/clips.txt") bytes)"
+          fi
+
           python run.py \
             --source "$INPUT_SOURCE" \
             --context "$INPUT_CONTEXT" \
             --clips "$INPUT_CLIPS" \
             --style "$INPUT_STYLE" \
+            --mode "$INPUT_MODE" \
             --out "$GITHUB_WORKSPACE/studio-output" \
+            $CLIPS_FLAG \
             $EPISODE_FLAG
 
       - name: Put the summary on the run page
