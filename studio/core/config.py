@@ -104,20 +104,36 @@ class ConfigError(RuntimeError):
     """Raised at startup when Studio is configured in a way that is unsafe."""
 
 
+def validate_basics() -> None:
+    """Checks for a run that spends nothing.
+
+    The transcribe and cut modes need no API key at all: transcription can run
+    on the machine itself and the clip list comes from a person. Demanding a
+    key here would make the free paths impossible, which is the whole point of
+    having them.
+    """
+    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def validate() -> None:
-    """Checks that apply however Studio is run.
+    """Checks for a run that asks Claude to choose the moments.
 
     Deliberately does not demand a password: when Studio runs as a GitHub
     Action there is no server to protect, and the repository's own access
     control is the boundary.
     """
+    validate_basics()
     if not ANTHROPIC_API_KEY:
         raise ConfigError(
-            "ANTHROPIC_API_KEY is not set, so the moments cannot be chosen. "
-            "Add it under Settings -> Secrets and variables -> Actions."
+            "ANTHROPIC_API_KEY is not set, so Claude cannot choose the "
+            "moments. Note that a Claude subscription does NOT include API "
+            "credit -- they are billed separately.\n\n"
+            "To run without paying for the API, use mode 'transcribe' to get "
+            "the words out, choose the moments yourself (or in a Claude "
+            "conversation you already pay for), then run mode 'cut' with that "
+            "list. Both are free."
         )
-    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
-    JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def validate_for_server() -> None:

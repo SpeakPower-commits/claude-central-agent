@@ -33,19 +33,53 @@ office internet is never used to move a two-gigabyte file.
 
 ---
 
-## Setting it up — once, about ten minutes
+## It runs free. Read this first.
 
-### 1. Add your Claude key
+**A Claude subscription does NOT include API credit.** They are separate
+products, billed separately. Paying for Claude.ai gives you nothing on the API.
 
-In this repository on github.com:
+Studio therefore has three modes, and **two of them cost nothing**:
+
+| Mode | What it does | Cost |
+|:--|:--|:--|
+| **transcribe** | Fetches the video and writes out the words. Stops there. | **Free** |
+| **cut** | Renders a clip list you supply. | **Free** |
+| **auto** | Claude picks the moments for you. | Needs paid API credit |
+
+Only one step in this whole pipeline needs AI at all: deciding *which* moments
+are worth cutting. Everything else — downloading, transcribing, cutting,
+captioning, levelling the sound — is mechanical and free.
+
+### The free workflow
+
+1. Run **transcribe**. Download the artifact and open `transcript.txt`.
+2. Paste that transcript into a Claude conversation you already pay for, and
+   ask which moments make good shorts.
+3. Run **cut**, pasting the clip list it gives you.
+
+You get the same result. The judgement comes from a subscription you already
+have instead of a metered API.
+
+---
+
+## Setting it up
+
+### Nothing, if you use the free modes
+
+`transcribe` and `cut` need no keys and no accounts. Skip straight to
+**Using it**.
+
+### Optional: a Claude key, for `auto` mode
+
+Only if you want the moments chosen automatically. In this repository on
+github.com:
 
 **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
 
 - Name: `ANTHROPIC_API_KEY`
-- Value: your key from https://console.anthropic.com
+- Value: your key from https://console.anthropic.com, **with credit on it**
 
-This is the only required step. The key is encrypted and never visible in the
-code or the logs.
+The key is encrypted and never visible in the code or the logs.
 
 ### 2. Optional, but strongly recommended: a Deepgram key
 
@@ -86,6 +120,8 @@ Fill in the small form:
 | Field | What to put |
 |:--|:--|
 | **Link to the recording** | the Drive or YouTube link you just copied |
+| **What to do** | `transcribe` first (free). Then `cut` once you have a clip list. `auto` only if you have paid API credit |
+| **Clip list** | for `cut` mode only. One clip per line, or separated by semicolons because the box is single-line: `00:03:12 00:03:58 Why NGOs waste their budget; 00:11:40 00:12:15 The one question` |
 | **What is this?** | a sentence of context, e.g. *"Interview with a church media director about donor communication"* — this genuinely improves which moments get chosen |
 | **How many shorts** | 8 is a sensible default |
 | **Framing** | `blur` keeps the whole picture (safe for two people on screen); `crop` fills the screen but can cut off someone standing off-centre |

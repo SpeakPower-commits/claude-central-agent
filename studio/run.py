@@ -85,13 +85,40 @@ def main() -> int:
                         help="where to put the finished assets")
     parser.add_argument("--skip-episode", action="store_true",
                         help="skip the cleaned long edit (much faster)")
+    parser.add_argument("--mode", choices=("auto", "transcribe", "cut"),
+                        default="auto",
+                        help="auto: Claude chooses the moments (needs API "
+                             "credit). transcribe: get the words out and stop, "
+                             "free. cut: render a clip list you supply, free.")
+    parser.add_argument("--clips-text", default="",
+                        help="a clip list, one 'start end title' per line. "
+                             "Implies --mode cut.")
+    parser.add_argument("--clips-file", type=Path, default=None,
+                        help="read the clip list from a file instead")
     arguments = parser.parse_args()
 
     if arguments.clips:
         config.TARGET_CLIP_COUNT = max(1, min(arguments.clips, 20))
 
+    clips_text = arguments.clips_text or ""
+    if arguments.clips_file:
+        if not arguments.clips_file.is_file():
+            print(f"No such clips file: {arguments.clips_file}", file=sys.stderr)
+            return 2
+        clips_text = arguments.clips_file.read_text(encoding="utf-8")
+
+    mode = arguments.mode
+    # Supplying a list is an unambiguous request to use it.
+    if clips_text.strip() and mode == "auto":
+        mode = "cut"
+    if mode == "cut" and not clips_text.strip():
+        print("--mode cut needs a clip list (--clips-text or --clips-file).",
+              file=sys.stderr)
+        return 2
+
+    # Only the "auto" path spends anything, so it alone needs the key.
     try:
-        config.validate()
+        config.validate() if mode == "auto" else config.validate_basics()
     except config.ConfigError as error:
         print(f"Configuration problem: {error}", file=sys.stderr)
         return 2
@@ -106,14 +133,20 @@ def main() -> int:
     jobs.create(job_id, source, source_kind)
     print(f"Studio job {job_id}")
     print(f"Source: {source[:120]}")
+    print(f"Mode: {mode}")
     print(f"Transcription: {config.transcription_backend()}")
-    print(f"Editor model: {config.ANALYSIS_MODEL}")
+    if mode == "auto":
+        print(f"Editor model: {config.ANALYSIS_MODEL} (this spends API credit)")
+    else:
+        print("Editor model: none -- this run costs nothing in API credit")
 
     pipeline.run(
         job_id, source, source_kind,
         context=arguments.context,
         style=arguments.style,
-        skip_episode=arguments.skip_episode,
+        skip_episode=arguments.skip_episode or mode == "transcribe",
+        mode=mode,
+        clips_text=clips_text,
     )
 
     state = jobs.read(job_id) or {}

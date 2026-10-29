@@ -17,7 +17,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from . import analyse, config, fetch, jobs, media, transcribe
+from . import analyse, clips, config, fetch, jobs, media, transcribe
 
 
 def _slugify(text: str) -> str:
@@ -57,8 +57,17 @@ def _write_text_assets(result: dict[str, Any], outputs_dir: Path) -> list[str]:
 
 def run(job_id: str, source: str, source_kind: str,
         context: str = "", style: str = "blur",
-        skip_episode: bool = False) -> None:
-    """Execute the whole pipeline for one job, recording progress as it goes."""
+        skip_episode: bool = False, mode: str = "auto",
+        clips_text: str = "") -> None:
+    """Execute the pipeline for one job, recording progress as it goes.
+
+    Three modes, because the only step that costs money is choosing the
+    moments:
+
+    * "transcribe" -- fetch and transcribe, then stop. Free.
+    * "cut"        -- render a clip list supplied by hand. Free.
+    * "auto"       -- ask Claude to choose. Needs an API key with credit.
+    """
     directory = jobs.job_dir(job_id)
     outputs_dir = directory / "outputs"
     outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -105,11 +114,32 @@ def run(job_id: str, source: str, source_kind: str,
         # The stripped WAV is a disposable intermediate worth 100MB of disk.
         audio_path.unlink(missing_ok=True)
 
+        # Transcribe-only stops here: the point of this mode is to get the
+        # words out for free so the moments can be chosen somewhere that is
+        # already paid for, rather than through a metered API.
+        if mode == "transcribe":
+            stage("Writing the text")
+            note("Transcript ready. Nothing else runs in this mode.")
+            jobs.finish(job_id, {
+                "shorts": [],
+                "episode": None,
+                "episode_stats": {"skipped": True},
+                "text": [transcript_path.name, srt_path.name],
+            })
+            return
+
         # --- 3. Choose the moments -------------------------------------------
         stage("Choosing the moments")
-        analysis = analyse.analyse(
-            transcript_path.read_text(encoding="utf-8"), duration, context
-        )
+        if clips_text and clips_text.strip():
+            # Supplied by hand. No API call, no credits, no key required.
+            note("Using the clip list you supplied")
+            chosen = clips.parse(clips_text, duration)
+            analysis = clips.as_analysis(chosen, context)
+            note(f"{len(chosen)} clips read from the list")
+        else:
+            analysis = analyse.analyse(
+                transcript_path.read_text(encoding="utf-8"), duration, context
+            )
         (directory / "analysis.json").write_text(
             json.dumps(analysis, indent=1), encoding="utf-8"
         )
@@ -186,7 +216,7 @@ def run(job_id: str, source: str, source_kind: str,
             "text": text_files,
         })
 
-    except (fetch.FetchError, media.MediaError,
+    except (fetch.FetchError, media.MediaError, clips.ClipFormatError,
             transcribe.TranscriptionError, analyse.AnalysisError) as error:
         # Expected failures: the message is already written for a person.
         jobs.fail(job_id, str(error))
