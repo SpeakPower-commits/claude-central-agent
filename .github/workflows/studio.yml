@@ -59,10 +59,23 @@ jobs:
           cache: pip
           cache-dependency-path: studio/requirements.txt
 
-      - name: Confirm ffmpeg is present
-        # ffmpeg ships on GitHub's Ubuntu runners, so this is a check rather
-        # than an install. It fails loudly here instead of mid-render.
-        run: ffmpeg -version | head -1
+      - name: Install ffmpeg
+        # ffmpeg is NOT on GitHub's Ubuntu runner image, so it has to be
+        # installed. An earlier version of this workflow only checked for it
+        # and ran `ffmpeg -version | head -1`; steps run under `bash -e` with
+        # no `pipefail`, so the pipeline took head's exit code, the step went
+        # green, and the job died later at the first real ffmpeg call.
+        #
+        # Hence: install, then verify each binary on its own line, unpiped, so
+        # a missing one actually fails this step.
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
+          command -v ffmpeg
+          command -v ffprobe
 
       - name: Install dependencies
         working-directory: studio
@@ -77,14 +90,31 @@ jobs:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           STUDIO_MODEL: ${{ vars.STUDIO_MODEL || 'claude-sonnet-5-5' }}
           STUDIO_WHISPER_MODEL: ${{ vars.STUDIO_WHISPER_MODEL || 'small' }}
+          # Inputs arrive as environment variables rather than being pasted
+          # into the command line. A title containing a quote would otherwise
+          # end the shell argument and run whatever followed it.
+          INPUT_SOURCE: ${{ inputs.source }}
+          INPUT_CONTEXT: ${{ inputs.context }}
+          INPUT_CLIPS: ${{ inputs.clips }}
+          INPUT_STYLE: ${{ inputs.style }}
+          # A workflow_dispatch boolean can arrive as the STRING "false",
+          # which is truthy, so this compares against both forms. Getting it
+          # wrong silently inverts whether the long edit is produced.
+          INCLUDE_EPISODE: ${{ (inputs.include_episode == true || inputs.include_episode == 'true') && '1' || '' }}
         run: |
+          set -euo pipefail
+          EPISODE_FLAG=""
+          if [ -z "$INCLUDE_EPISODE" ]; then
+            EPISODE_FLAG="--skip-episode"
+          fi
+          echo "Episode flag: ${EPISODE_FLAG:-<producing full episode>}"
           python run.py \
-            --source "${{ inputs.source }}" \
-            --context "${{ inputs.context }}" \
-            --clips "${{ inputs.clips }}" \
-            --style "${{ inputs.style }}" \
+            --source "$INPUT_SOURCE" \
+            --context "$INPUT_CONTEXT" \
+            --clips "$INPUT_CLIPS" \
+            --style "$INPUT_STYLE" \
             --out "$GITHUB_WORKSPACE/studio-output" \
-            ${{ inputs.include_episode == true && ' ' || '--skip-episode' }}
+            $EPISODE_FLAG
 
       - name: Put the summary on the run page
         if: always()
