@@ -157,6 +157,55 @@ def _validate_clips(raw_clips: Any, duration: float) -> list[dict[str, Any]]:
     return deduplicated
 
 
+def preflight() -> None:
+    """Confirm the API will actually answer, before any expensive work starts.
+
+    Having a key is not the same as being able to use it: a key with no credit
+    passes every local check and then fails at the one step that spends money.
+    Without this, a run discovers that only after transcribing -- half an hour
+    of work thrown away for an error that was knowable in one second.
+
+    The probe asks for a single token, so it costs effectively nothing.
+    """
+    if not config.model_ready():
+        raise AnalysisError(
+            "ANTHROPIC_API_KEY is not set. Use mode 'transcribe' or 'cut' to "
+            "run without it."
+        )
+
+    try:
+        import anthropic
+    except ImportError as error:
+        raise AnalysisError("The anthropic package is not installed.") from error
+
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+    try:
+        client.messages.create(
+            model=config.ANALYSIS_MODEL,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ok"}],
+        )
+    except Exception as error:  # the SDK raises a family of error types
+        text = str(error)
+        if "credit balance is too low" in text or "billing" in text.lower():
+            raise AnalysisError(
+                "The Anthropic API key has no credit, so 'auto' mode cannot "
+                "run.\n\n"
+                "  A Claude.ai subscription does NOT include API credit -- "
+                "they are separate products, billed separately.\n\n"
+                "  To continue without paying: set Mode to 'transcribe', run "
+                "it, download transcript.txt, choose the moments in a Claude "
+                "conversation you already pay for, then run Mode 'cut' with "
+                "that list. Both are free."
+            ) from error
+        if "authentication" in text.lower() or "invalid x-api-key" in text.lower():
+            raise AnalysisError(
+                "The Anthropic API key was rejected. Check the "
+                "ANTHROPIC_API_KEY secret."
+            ) from error
+        raise AnalysisError(f"Claude could not be reached: {error}") from error
+
+
 def analyse(transcript_text: str, duration: float,
             context: str = "") -> dict[str, Any]:
     """Ask Claude for the clip list and the text assets."""

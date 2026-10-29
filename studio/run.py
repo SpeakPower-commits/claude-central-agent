@@ -19,7 +19,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from core import config, jobs, pipeline
+from core import analyse, config, jobs, pipeline
 
 
 def summarise(state: dict, destination: Path) -> None:
@@ -137,6 +137,16 @@ def main() -> int:
     print(f"Transcription: {config.transcription_backend()}")
     if mode == "auto":
         print(f"Editor model: {config.ANALYSIS_MODEL} (this spends API credit)")
+        # Check the API will answer before transcribing. A key with no credit
+        # passes every local check, so without this the run would transcribe
+        # for half an hour and only then discover it cannot pay.
+        print("Checking the API can be reached before starting...")
+        try:
+            analyse.preflight()
+        except analyse.AnalysisError as error:
+            print(f"\nCannot run in 'auto' mode:\n\n{error}\n", file=sys.stderr)
+            return 1
+        print("  API reachable.")
     else:
         print("Editor model: none -- this run costs nothing in API credit")
 
@@ -150,16 +160,39 @@ def main() -> int:
     )
 
     state = jobs.read(job_id) or {}
-    if state.get("status") != "done":
-        print(f"\nFAILED: {state.get('error') or 'unknown error'}", file=sys.stderr)
-        return 1
 
-    # Collect everything into one predictable folder for the Action to upload.
+    # Collect whatever was produced BEFORE deciding success or failure. A run
+    # that dies while choosing the moments has already spent half an hour
+    # transcribing, and that transcript is exactly what the free workflow
+    # needs; throwing it away because a later stage failed wastes the most
+    # expensive thing in the job.
     arguments.out.mkdir(parents=True, exist_ok=True)
     produced = jobs.job_dir(job_id) / "outputs"
-    for item in produced.iterdir():
-        if item.is_file():
-            shutil.copy2(item, arguments.out / item.name)
+    salvaged = 0
+    if produced.is_dir():
+        for item in produced.iterdir():
+            if item.is_file():
+                shutil.copy2(item, arguments.out / item.name)
+                salvaged += 1
+
+    if state.get("status") != "done":
+        print(f"\nFAILED: {state.get('error') or 'unknown error'}", file=sys.stderr)
+        if salvaged:
+            print(
+                f"\n{salvaged} file(s) were produced before the failure and "
+                f"are in the artifact anyway:",
+                file=sys.stderr,
+            )
+            for item in sorted(arguments.out.iterdir()):
+                print(f"  {item.name}", file=sys.stderr)
+            if (arguments.out / "transcript.txt").is_file():
+                print(
+                    "\nThe transcript survived. You can use it with Mode "
+                    "'cut' without transcribing again.",
+                    file=sys.stderr,
+                )
+        return 1
+
     (arguments.out / "analysis.json").write_text(
         json.dumps(state.get("outputs", {}), indent=1), encoding="utf-8"
     )
