@@ -1,0 +1,20 @@
+# SpeakPower Studio
+#
+# ffmpeg is NOT here: it is a system program, already installed on GitHub's
+# runners. On any other machine, install it separately.
+
+# Claude, for choosing the moments and writing the text assets.
+anthropic>=0.40.0
+
+# Fetching a recording from a shareable link (Drive, YouTube, Dropbox, Vimeo).
+yt-dlp>=2024.8.6
+
+# Used by the Deepgram transcription path.
+httpx>=0.27.0
+
+# Speech recognition on the machine itself, used when DEEPGRAM_API_KEY is not
+# set. Free but slow; the first run downloads the model.
+faster-whisper>=1.0.3
+
+# Reads a .env file when running outside GitHub Actions. Optional convenience.
+python-dotenv>=1.0.1
