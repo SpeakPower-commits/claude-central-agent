@@ -13,6 +13,8 @@ import {
 import { FORMATS, drawFrame, loadAssets } from './renderer.js';
 import { Timeline } from './timeline.js';
 import { exportVideo, loadMediabunny } from './exporter.js';
+import { editSegmentText, replaceEverywhere, segmentsFromSrt } from './captions.js';
+import { transcribeFile } from './speech.js';
 
 // Preview runs at a reduced resolution so it stays smooth on modest PCs. The
 // renderer lays everything out proportionally, so this is a faithful scale
@@ -46,6 +48,21 @@ const ui = {
   result: $('#result'),
   status: $('#status'),
   unsupported: $('#unsupported'),
+  captionsOn: $('#captions-on'),
+  captionModel: $('#caption-model'),
+  captionLanguage: $('#caption-language'),
+  autoCaptions: $('#auto-captions'),
+  captionProgress: $('#caption-progress'),
+  captionProgressFill: $('#caption-progress-fill'),
+  captionProgressText: $('#caption-progress-text'),
+  captionCancel: $('#caption-cancel'),
+  srt: $('#srt'),
+  transcript: $('#transcript'),
+  lines: $('#lines'),
+  captionCount: $('#caption-count'),
+  replaceForm: $('#replace-form'),
+  replaceFind: $('#replace-find'),
+  replaceWith: $('#replace-with'),
 };
 
 const state = {
@@ -55,7 +72,9 @@ const state = {
   assets: { logos: {} },
   selection: null,
   exporting: null,       // AbortController while an export runs
+  captioning: null,      // AbortController while captions are being made
   resultUrl: null,
+  currentLine: -1,
 };
 
 const previewCtx = ui.preview.getContext('2d', { alpha: false });
@@ -136,7 +155,10 @@ function tick() {
       video.currentTime = next;
     }
   }
-  if (video) timeline.setPlayhead(video.currentTime);
+  if (video) {
+    timeline.setPlayhead(video.currentTime);
+    updateCurrentLine(video.currentTime);
+  }
   drawPreview();
   updateClock();
   requestAnimationFrame(tick);
@@ -166,6 +188,7 @@ function renderCuts() {
 function editChanged() {
   timeline.render();
   renderCuts();
+  markRemovedLines();
   updateClock();
   clearResult();
 }
@@ -198,6 +221,180 @@ ui.remove.addEventListener('click', () => {
   }
 });
 
+// --- Captions ----------------------------------------------------------------
+
+/** Index of the caption line playing at a time, or -1. */
+function lineAt(segments, time) {
+  let low = 0;
+  let high = segments.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (time < segments[middle].start) high = middle - 1;
+    else if (time >= segments[middle].end) low = middle + 1;
+    else return middle;
+  }
+  return -1;
+}
+
+function isRemoved(project, segment) {
+  const middle = (segment.start + segment.end) / 2;
+  return nextPlayableTime(project, middle) !== middle;
+}
+
+function markRemovedLines() {
+  const { project } = state;
+  if (!project) return;
+  [...ui.lines.children].forEach((item, index) => {
+    const segment = project.captions.segments[index];
+    if (segment) item.classList.toggle('is-removed', isRemoved(project, segment));
+  });
+}
+
+function renderTranscript() {
+  const { project } = state;
+  const segments = project?.captions.segments || [];
+  ui.transcript.hidden = !segments.length;
+  ui.captionCount.textContent = segments.length ? `· ${segments.length} lines` : '';
+  state.currentLine = -1;
+
+  ui.lines.replaceChildren(...segments.map((segment, index) => {
+    const item = document.createElement('li');
+    const time = document.createElement('button');
+    time.type = 'button';
+    time.className = 'line-time';
+    time.textContent = formatTime(segment.start);
+    time.title = 'Jump here';
+    time.addEventListener('click', () => {
+      if (state.video) state.video.currentTime = segment.start + 0.01;
+    });
+
+    const text = document.createElement('input');
+    text.className = 'line-text';
+    text.value = segment.text;
+    text.setAttribute('aria-label', `Caption at ${formatTime(segment.start)}`);
+    // Update the data, not the list: rebuilding the list on every keystroke
+    // would steal the cursor out of the box being typed in.
+    text.addEventListener('input', () => {
+      const next = project.captions.segments.slice();
+      next[index] = editSegmentText(next[index], text.value);
+      project.captions.segments = next;
+      clearResult();
+    });
+
+    item.append(time, text);
+    return item;
+  }));
+  markRemovedLines();
+}
+
+function updateCurrentLine(time) {
+  const segments = state.project?.captions.segments;
+  if (!segments?.length) return;
+  const index = lineAt(segments, time);
+  if (index === state.currentLine) return;
+  ui.lines.children[state.currentLine]?.classList.remove('is-current');
+  const item = ui.lines.children[index];
+  if (item) {
+    item.classList.add('is-current');
+    // Follow playback without yanking the page around.
+    if (!state.video.paused) item.scrollIntoView({ block: 'nearest' });
+  }
+  state.currentLine = index;
+}
+
+function setSegments(segments) {
+  state.project.captions.segments = segments;
+  renderTranscript();
+  clearResult();
+}
+
+function setCaptioning(active) {
+  ui.autoCaptions.disabled = active || !state.project;
+  ui.autoCaptions.textContent = active ? 'Making captions…' : 'Auto captions';
+  ui.captionProgress.hidden = !active;
+}
+
+ui.autoCaptions.addEventListener('click', async () => {
+  const { project } = state;
+  if (!project || state.captioning) return;
+  if (project.captions.segments.length
+      && !window.confirm('Replace the current captions, including any corrections you made?')) return;
+
+  state.video?.pause();
+  const controller = new AbortController();
+  state.captioning = controller;
+  setCaptioning(true);
+  showStatus('');
+  ui.captionProgressFill.style.width = '0%';
+
+  const started = performance.now();
+  try {
+    const { segments, wordLevel } = await transcribeFile(project.file, {
+      model: ui.captionModel.value,
+      language: ui.captionLanguage.value,
+      signal: controller.signal,
+      onProgress: (stage, fraction) => {
+        ui.captionProgressFill.style.width = `${Math.round(fraction * 100)}%`;
+        ui.captionProgressText.textContent = `${stage} — ${Math.round(fraction * 100)}%`;
+      },
+    });
+    if (state.project !== project) return; // the user opened another video meanwhile
+    if (!segments.length) {
+      showStatus('No speech was found in this video.', 'warn');
+      return;
+    }
+    setSegments(segments);
+    const seconds = Math.round((performance.now() - started) / 1000);
+    showStatus(
+      `${segments.length} caption lines made in ${seconds}s. Check them below — fix any word by typing, ` +
+      'or use Replace all for a name it keeps getting wrong.' +
+      (wordLevel ? '' : ' This model gave line timings only, so the gold highlight moves evenly through each line.'),
+      'info',
+    );
+  } catch (error) {
+    if (controller.signal.aborted) showStatus('Captions cancelled.', 'info');
+    else showStatus(`Captions failed: ${error.message}`, 'error');
+  } finally {
+    state.captioning = null;
+    setCaptioning(false);
+  }
+});
+
+ui.captionCancel.addEventListener('click', () => state.captioning?.abort());
+
+ui.srt.addEventListener('change', async () => {
+  const file = ui.srt.files[0];
+  ui.srt.value = '';
+  if (!file || !state.project) return;
+  const segments = segmentsFromSrt(await file.text());
+  if (!segments.length) {
+    showStatus(`No captions could be read from "${file.name}". Is it an .srt or .vtt file?`, 'error');
+    return;
+  }
+  setSegments(segments);
+  showStatus(`${segments.length} caption lines imported from ${file.name}.`, 'info');
+});
+
+ui.captionsOn.addEventListener('change', () => {
+  if (state.project) state.project.captions.enabled = ui.captionsOn.checked;
+  clearResult();
+});
+
+ui.replaceForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const { project } = state;
+  if (!project) return;
+  const find = ui.replaceFind.value.trim();
+  if (!find) return;
+  const { segments, count } = replaceEverywhere(project.captions.segments, find, ui.replaceWith.value);
+  if (!count) {
+    showStatus(`"${find}" doesn't appear in the captions.`, 'info');
+    return;
+  }
+  setSegments(segments);
+  showStatus(`Replaced "${find}" in ${count} place${count === 1 ? '' : 's'}.`, 'info');
+});
+
 // --- Opening a video ---------------------------------------------------------
 
 function resetVideo() {
@@ -217,6 +414,7 @@ function openFile(file) {
     showStatus(`"${file.name}" doesn't look like a video file.`, 'error');
     return;
   }
+  state.captioning?.abort();
   resetVideo();
   clearResult();
   showStatus('Opening…');
@@ -246,6 +444,7 @@ function openFile(file) {
       project.headline = ui.headline.value;
       project.logo = ui.logo.value;
     }
+    project.captions.enabled = ui.captionsOn.checked;
     state.project = project;
     state.video = video;
 
@@ -255,6 +454,8 @@ function openFile(file) {
     sizePreviewCanvas();
     timeline.setProject(project);
     renderCuts();
+    renderTranscript();
+    ui.autoCaptions.disabled = false;
     showStatus('');
   }, { once: true });
 

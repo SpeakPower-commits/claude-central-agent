@@ -7,6 +7,9 @@
  * the export on a full 1080p one with identical proportions.
  */
 
+import { drawCaptions } from './captions.js';
+import { CAPTION_FONT, HEADLINE_FONT, wrapLines } from './text.js';
+
 export const FORMATS = {
   '9:16': { width: 1080, height: 1920, label: 'Vertical 9:16', use: 'Reels · TikTok · Shorts' },
   '1:1': { width: 1080, height: 1080, label: 'Square 1:1', use: 'Instagram · LinkedIn feed' },
@@ -19,8 +22,6 @@ const GOLD = '#E0BE55';
 const NAVY_BAND = 'rgba(40, 49, 66, 0.84)';
 const WHITE = '#FFFFFF';
 
-const HEADLINE_FONT = 'StudioInterExtraBold';
-export const CAPTION_FONT = 'StudioInterBlack';
 
 // Per-format placement, as fractions of the frame. Vertical video keeps its
 // graphics clear of the platform's own header and its caption/username area;
@@ -85,24 +86,6 @@ function drawBlurredBackground(ctx, source, sourceWidth, sourceHeight, width, he
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(blurCanvas, 0, 0, width, height);
-}
-
-/** Break text into lines no wider than maxWidth with the context's font. */
-export function wrapLines(ctx, text, maxWidth) {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = '';
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(candidate).width > maxWidth) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = candidate;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
 }
 
 function roundedRect(ctx, x, y, width, height, radius) {
@@ -192,7 +175,9 @@ export function drawFrame(ctx, source, sourceWidth, sourceHeight, times, project
     drawHeadline(ctx, headline, width, height, unit, layout, reserve, alpha);
   }
 
-  if (overlays) overlays(ctx, { width, height, unit, layout, times });
+  const frameInfo = { width, height, unit, layout, times };
+  drawCaptions(ctx, frameInfo, project.captions);
+  if (overlays) overlays(ctx, frameInfo);
 
   if (logo) {
     const logoHeight = logoWidth * (logo.naturalHeight / logo.naturalWidth);

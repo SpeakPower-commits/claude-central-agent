@@ -64,6 +64,19 @@
         </div>
 
         <ul id="cuts" class="cut-list" aria-label="Removed parts"></ul>
+
+        <section id="transcript" class="transcript" hidden aria-labelledby="transcript-title">
+          <div class="transcript-head">
+            <h2 id="transcript-title">Captions <span id="caption-count" class="count"></span></h2>
+            <form id="replace-form" class="replace" autocomplete="off">
+              <input id="replace-find" class="field" aria-label="Wrong word" placeholder="Wrong word, e.g. Sonseno" />
+              <input id="replace-with" class="field" aria-label="Right word" placeholder="Right word, e.g. Otieno" />
+              <button class="button" type="submit">Replace all</button>
+            </form>
+          </div>
+          <p class="hint">Click a time to jump there. Fix any word by typing — the preview updates as you go. Lines in removed parts are greyed out.</p>
+          <ol id="lines" class="lines"></ol>
+        </section>
       </div>
     </section>
 
@@ -94,6 +107,32 @@
           <option value="speakpower">SpeakPower</option>
         </select>
         <p class="hint">Off by default — a client's video shouldn't carry SpeakPower's mark unless you choose it.</p>
+      </div>
+
+      <div class="panel-group panel-captions">
+        <h2>Captions</h2>
+        <label class="check"><input type="checkbox" id="captions-on" checked /> Show captions on the video</label>
+        <div class="field-row">
+          <select id="caption-model" class="field" aria-label="Speech model">
+            <option value="accurate">Accurate</option>
+            <option value="quick">Quick</option>
+          </select>
+          <select id="caption-language" class="field" aria-label="Spoken language">
+            <option value="english">English</option>
+            <option value="swahili">Swahili</option>
+            <option value="">Detect language</option>
+          </select>
+        </div>
+        <button id="auto-captions" class="button button-wide" type="button" disabled>Auto captions</button>
+        <div id="caption-progress" class="progress" hidden>
+          <div class="progress-bar"><div id="caption-progress-fill" class="progress-fill"></div></div>
+          <div class="progress-row">
+            <span id="caption-progress-text">Starting…</span>
+            <button id="caption-cancel" class="button-link" type="button">Cancel</button>
+          </div>
+        </div>
+        <p class="hint" id="caption-hint">Runs on this computer. The first time, it downloads a speech model (Accurate ≈ 250 MB, Quick ≈ 80 MB); after that it's instant to start.</p>
+        <p class="hint">Or <label class="button-link file-link">import an .srt file<input id="srt" type="file" accept=".srt,.vtt,text/vtt" hidden /></label>.</p>
       </div>
 
       <div class="panel-group panel-export">
