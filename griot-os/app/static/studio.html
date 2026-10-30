@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SpeakPower Studio — Video Editor</title>
-  <meta name="description" content="Trim, cut, caption and brand your videos for Reels, TikTok and YouTube — right in the browser. Your video never leaves your computer. A product of SpeakPower." />
+  <meta name="description" content="Edit on eight video tracks, record your camera, screen or voice, add transitions, titles and captions, and export for Reels, TikTok and YouTube — right in the browser. Your video never leaves your computer. A product of SpeakPower." />
   <meta name="author" content="SpeakPower" />
   <meta name="theme-color" content="#283142" />
 
@@ -42,6 +42,11 @@
             Choose video
             <input id="file" type="file" accept="video/*" hidden />
           </label>
+          <div class="drop-record" data-needs-recorder>
+            <span>or record one</span>
+            <button class="button" type="button" data-record="camera">Camera</button>
+            <button class="button" type="button" data-record="screen">Screen</button>
+          </div>
         </div>
       </div>
 
@@ -56,14 +61,39 @@
           <span class="clock-note" id="clock-note"></span>
         </div>
 
-        <div id="timeline" class="timeline"></div>
+        <section class="tracks" aria-labelledby="tracks-title">
+          <div class="section-head">
+            <h2 id="tracks-title">Tracks</h2>
+            <div class="toolbar">
+              <label class="button button-small">Add media<input id="add-media" type="file" accept="video/*,audio/*,image/*" multiple hidden /></label>
+              <button id="add-text" class="button button-small" type="button">Add title</button>
+              <span class="toolbar-group" data-needs-recorder>
+                <button class="button button-small" type="button" data-record="camera">Record camera</button>
+                <button class="button button-small" type="button" data-record="screen">Record screen</button>
+                <button class="button button-small" type="button" data-record="voice">Record voice</button>
+              </span>
+              <label class="zoom">Zoom <input id="zoom" type="range" min="0" max="6" step="0.25" value="0" /></label>
+            </div>
+          </div>
+          <div id="multitrack" class="mt"></div>
+          <p class="hint">Drag clips to move them or onto another track; drag their ends to trim. Higher tracks show on top. Click a track name to hide or mute it. Pictures, video, sound — or drop files anywhere on the page.</p>
+          <div id="inspector" class="inspector" hidden></div>
+        </section>
 
-        <div class="edit-row">
-          <button id="remove" class="button" type="button" disabled>Remove selection</button>
-          <span class="hint">Drag the gold handles to trim. Drag across the bar to select a part to remove.</span>
-        </div>
+        <section class="main-edit" aria-labelledby="main-edit-title">
+          <div class="section-head">
+            <h2 id="main-edit-title">Main video · trim &amp; cut</h2>
+            <label class="button button-small">Replace main video<input id="replace-main" type="file" accept="video/*" hidden /></label>
+          </div>
+          <div id="timeline" class="timeline"></div>
 
-        <ul id="cuts" class="cut-list" aria-label="Removed parts"></ul>
+          <div class="edit-row">
+            <button id="remove" class="button" type="button" disabled>Remove selection</button>
+            <span class="hint">Drag the gold handles to trim. Drag across the bar to select a part to remove.</span>
+          </div>
+
+          <ul id="cuts" class="cut-list" aria-label="Removed parts"></ul>
+        </section>
 
         <section id="transcript" class="transcript" hidden aria-labelledby="transcript-title">
           <div class="transcript-head">
@@ -92,6 +122,18 @@
           <label class="choice"><input type="radio" name="framing" value="blur" checked /><span><strong>Fit</strong><small>Whole picture, blurred edges</small></span></label>
           <label class="choice"><input type="radio" name="framing" value="crop" /><span><strong>Fill</strong><small>Crop to fill the screen</small></span></label>
         </div>
+      </div>
+
+      <div class="panel-group">
+        <h2>Main video</h2>
+        <label class="field-label" for="join-transition">At each cut</label>
+        <select id="join-transition" class="field">
+          <option value="cut">Straight cut</option>
+          <option value="fade">Fade through black</option>
+          <option value="flash">Flash (white)</option>
+        </select>
+        <label class="field-label" for="main-volume">Sound <output id="main-volume-value">100%</output></label>
+        <input id="main-volume" type="range" min="0" max="1" step="0.05" value="1" />
       </div>
 
       <div class="panel-group">
@@ -152,6 +194,29 @@
       <p class="attribution">A product of <strong>SpeakPower</strong></p>
     </aside>
   </main>
+
+  <dialog id="capture" class="capture" aria-labelledby="capture-title">
+    <div class="capture-head">
+      <h2 id="capture-title">Record</h2>
+      <button id="capture-close" class="button-link" type="button">Close</button>
+    </div>
+    <video id="capture-live" class="capture-live" muted playsinline autoplay></video>
+    <div id="capture-voice" class="capture-voice" hidden>
+      <svg viewBox="0 0 24 24" width="56" height="56" aria-hidden="true"><path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15Zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H13v-2.59a6 6 0 0 0 5-5.9Z"/></svg>
+    </div>
+    <div class="capture-meter" title="Microphone level"><div id="capture-level"></div></div>
+    <div class="field-row">
+      <select id="capture-camera" class="field" aria-label="Camera"></select>
+      <select id="capture-mic" class="field" aria-label="Microphone"></select>
+    </div>
+    <label class="check" id="capture-follow-row"><input type="checkbox" id="capture-follow" checked /> Play the video from the playhead while I speak</label>
+    <label class="check" id="capture-hear-row"><input type="checkbox" id="capture-hear" /> Keep the video's sound on (wearing headphones)</label>
+    <div class="capture-actions">
+      <span id="capture-timer" class="capture-timer">0:00</span>
+      <button id="capture-start" class="button button-primary" type="button" disabled>Start recording</button>
+    </div>
+    <p id="capture-note" class="hint"></p>
+  </dialog>
 
   <script type="module" src="/static/studio/app.js"></script>
 </body>

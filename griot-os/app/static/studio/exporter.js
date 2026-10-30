@@ -1,18 +1,21 @@
 /**
  * Renders the edit to an MP4, entirely in the browser.
  *
- * The source file is read where it sits on the user's computer; nothing is
- * uploaded. Mediabunny handles the container (reading and writing MP4) and
+ * Source files are read where they sit on the user's computer; nothing is
+ * uploaded. Mediabunny handles the containers (reading and writing MP4) and
  * drives the browser's own video and audio encoders, which on most PCs means
  * the graphics card does the heavy lifting.
  *
- * Only the kept stretches are decoded. Each frame is drawn by the same
- * drawFrame() the preview uses, then re-timed so the removed stretches close
- * up with no gap.
+ * The finished video is built on a fixed grid of frames. For each frame the
+ * main video and every layer showing at that moment are decoded at exactly
+ * the right time -- each source once, front to back -- and drawn by the same
+ * drawFrame() the preview uses.
  */
 
 import { FORMATS, drawFrame } from './renderer.js';
-import { keptRanges, outputDuration } from './project.js';
+import { keptRanges, outputToSource } from './project.js';
+import { VIDEO_TRACKS, isActive, mediaOf, timelineDuration } from './tracks.js';
+import { audibleClips, mixAudio } from './mixer.js';
 
 // Pinned to an exact release. Loaded on first export, not on page load, so
 // opening the editor stays fast.
@@ -39,31 +42,31 @@ export async function loadMediabunny() {
 const VIDEO_PREFERENCE = ['avc', 'hevc', 'vp9', 'av1'];
 const AUDIO_PREFERENCE = ['aac', 'opus'];
 
-const OUTPUT_FRAME_RATE = 30;
+// Standard frame rates; the export uses the one nearest the main video's own.
+const FRAME_RATES = [24, 25, 30, 50, 60];
+const DEFAULT_FRAME_RATE = 30;
 
-/** Copy samples [from, to) of an AudioBuffer into a new one. */
-function sliceAudioBuffer(buffer, from, to) {
-  const piece = new AudioBuffer({
-    length: to - from,
-    numberOfChannels: buffer.numberOfChannels,
-    sampleRate: buffer.sampleRate,
-  });
-  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
-    piece.copyToChannel(buffer.getChannelData(channel).subarray(from, to), channel);
+async function chooseFrameRate(videoTrack) {
+  try {
+    const { averagePacketRate } = await videoTrack.computePacketStats(120);
+    if (!(averagePacketRate > 0)) return DEFAULT_FRAME_RATE;
+    return FRAME_RATES.reduce((best, rate) =>
+      (Math.abs(rate - averagePacketRate) < Math.abs(best - averagePacketRate) ? rate : best));
+  } catch {
+    return DEFAULT_FRAME_RATE;
   }
-  return piece;
 }
 
 /** Choose the best audio codec this browser can encode, resampling if needed. */
-async function chooseAudio(mb, format, audioTrack) {
+async function chooseAudio(mb, format, sourceRate) {
   const supported = format.getSupportedAudioCodecs();
   const codecs = AUDIO_PREFERENCE.filter((codec) => supported.includes(codec));
-  const numberOfChannels = Math.min(2, audioTrack.numberOfChannels || 2);
+  const numberOfChannels = 2;
 
   // First at the source's own rate; then at 48 kHz, which every encoder
   // accepts. Phone video is usually 44.1 kHz, and some encoders (Opus) refuse
   // it -- without this fallback the export would silently lose its sound.
-  for (const sampleRate of [audioTrack.sampleRate, 48000]) {
+  for (const sampleRate of [sourceRate, 48000]) {
     const codec = await mb.getFirstEncodableAudioCodec(codecs, { numberOfChannels, sampleRate });
     if (codec) return { codec, numberOfChannels, sampleRate };
   }
@@ -71,29 +74,53 @@ async function chooseAudio(mb, format, audioTrack) {
 }
 
 /**
+ * Frames for one source, decoded front to back at exactly the times needed.
+ * next() is called once per frame where the source is showing, in order.
+ */
+function frameStream(mb, track, times, firstTimestamp) {
+  const sink = new mb.CanvasSink(track, { poolSize: 2 });
+  // A frame asked for just before the first one in the file gets the first one.
+  const iterator = sink.canvasesAtTimestamps(times.map((time) => Math.max(time, firstTimestamp)));
+  return {
+    async next() {
+      const { value } = await iterator.next();
+      return value ? { image: value.canvas, width: value.canvas.width, height: value.canvas.height } : null;
+    },
+    close: () => iterator.return().catch(() => {}),
+  };
+}
+
+/**
  * Export the edit.
  *
- * @param project   the edit (project.js)
+ * @param project   the edit (project.js, tracks.js)
  * @param assets    fonts and logos (renderer.loadAssets)
- * @param options   { onProgress(fraction, message), signal, overlays }
+ * @param options   { onProgress(fraction, message), signal }
  * @returns         { blob, videoCodec, audioCodec, duration, warnings }
  */
-export async function exportVideo(project, assets, { onProgress = () => {}, signal, overlays } = {}) {
+export async function exportVideo(project, assets, { onProgress = () => {}, signal } = {}) {
   const mb = await loadMediabunny();
   const { width, height } = FORMATS[project.format];
-  const ranges = keptRanges(project);
-  const total = outputDuration(project);
+  const total = timelineDuration(project);
   const warnings = [];
 
-  if (!ranges.length || total <= 0) {
+  if (!keptRanges(project).length && !project.clips.length) {
     throw new Error('Nothing is left to export: the whole video has been trimmed or removed.');
   }
+  if (!(total > 0)) throw new Error('Nothing is left to export.');
 
-  const input = new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.BlobSource(project.file) });
+  // One reader per file, shared by every clip that uses it.
+  const inputs = new Map();
+  const openInput = async (file) => {
+    if (!inputs.has(file)) inputs.set(file, new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.BlobSource(file) }));
+    return inputs.get(file);
+  };
+  const streams = [];
   let output = null;
 
   try {
     onProgress(0, 'Reading the video');
+    const input = await openInput(project.file);
     const videoTrack = await input.getPrimaryVideoTrack();
     if (!videoTrack) throw new Error('This file has no video in it.');
     if (!(await videoTrack.canDecode())) {
@@ -105,8 +132,51 @@ export async function exportVideo(project, assets, { onProgress = () => {}, sign
 
     let audioTrack = await input.getPrimaryAudioTrack();
     if (audioTrack && !(await audioTrack.canDecode())) {
-      warnings.push("The sound in this file couldn't be read, so the export is silent.");
+      warnings.push("The sound in the main video couldn't be read, so it is left out.");
       audioTrack = null;
+    }
+
+    const frameRate = await chooseFrameRate(videoTrack);
+    const frameCount = Math.max(1, Math.round(total * frameRate));
+    const timeOf = (index) => index / frameRate;
+
+    // Which source time each frame needs from the main video.
+    const mainTimes = [];
+    const mainShown = new Uint8Array(frameCount);
+    for (let index = 0; index < frameCount; index += 1) {
+      const source = outputToSource(project, timeOf(index));
+      if (source !== null) { mainTimes.push(source); mainShown[index] = 1; }
+    }
+    const mainStream = mainTimes.length
+      ? frameStream(mb, videoTrack, mainTimes, await videoTrack.getFirstTimestamp())
+      : null;
+    if (mainStream) streams.push(mainStream);
+
+    // The same for every video layer.
+    const layers = [];
+    for (const clip of project.clips) {
+      if (!VIDEO_TRACKS.includes(clip.track) || project.trackOff?.[clip.track]) continue;
+      const media = mediaOf(project, clip);
+      if (clip.kind === 'image' && media?.image) {
+        layers.push({ clip, still: { image: media.image, width: media.width, height: media.height } });
+        continue;
+      }
+      if (clip.kind !== 'video' || !media) continue;
+      const track = await (await openInput(media.file)).getPrimaryVideoTrack();
+      if (!track || !(await track.canDecode())) {
+        warnings.push(`"${media.name}" couldn't be read by this browser, so it is left out.`);
+        continue;
+      }
+      const shown = new Uint8Array(frameCount);
+      const times = [];
+      for (let index = 0; index < frameCount; index += 1) {
+        const time = timeOf(index);
+        if (isActive(clip, time)) { shown[index] = 1; times.push(clip.in + (time - clip.start)); }
+      }
+      if (!times.length) continue;
+      const stream = frameStream(mb, track, times, await track.getFirstTimestamp());
+      streams.push(stream);
+      layers.push({ clip, stream, shown });
     }
 
     const format = new mb.Mp4OutputFormat();
@@ -127,12 +197,15 @@ export async function exportVideo(project, assets, { onProgress = () => {}, sign
     const frameCanvas = new OffscreenCanvas(width, height);
     const ctx = frameCanvas.getContext('2d', { alpha: false });
     const videoSource = new mb.CanvasSource(frameCanvas, { codec: videoCodec, bitrate: mb.QUALITY_HIGH });
-    output.addVideoTrack(videoSource, { frameRate: OUTPUT_FRAME_RATE });
+    output.addVideoTrack(videoSource, { frameRate });
 
+    // Sound: the main video's, plus every audible clip.
     let audioSource = null;
     let audioCodec = null;
-    if (audioTrack) {
-      const audio = await chooseAudio(mb, format, audioTrack);
+    let mixRate = null;
+    if (audioTrack || audibleClips(project).length) {
+      mixRate = audioTrack?.sampleRate || 48000;
+      const audio = await chooseAudio(mb, format, mixRate);
       if (audio) {
         audioCodec = audio.codec;
         audioSource = new mb.AudioBufferSource({
@@ -157,45 +230,36 @@ export async function exportVideo(project, assets, { onProgress = () => {}, sign
     // Video and audio run side by side so the file is written interleaved and
     // each side waits for the encoder when it falls behind (backpressure).
     const renderVideo = async () => {
-      const sink = new mb.CanvasSink(videoTrack, { poolSize: 2 });
-      let base = 0;
-      for (const range of ranges) {
-        for await (const frame of sink.canvases(range.start, range.end)) {
-          signal?.throwIfAborted();
-          const start = Math.max(frame.timestamp, range.start);
-          const end = Math.min(frame.timestamp + frame.duration, range.end);
-          if (end - start <= 0.0005) continue;
-
-          const outputTime = base + (start - range.start);
-          drawFrame(
-            ctx, frame.canvas, frame.canvas.width, frame.canvas.height,
-            { source: start, output: outputTime }, project, assets, overlays,
-          );
-          await videoSource.add(outputTime, end - start);
-          onProgress(Math.min(0.99, (outputTime + (end - start)) / total), 'Rendering');
+      for (let index = 0; index < frameCount; index += 1) {
+        signal?.throwIfAborted();
+        const time = timeOf(index);
+        const main = mainShown[index] ? await mainStream.next() : null;
+        const frameLayers = new Map();
+        for (const layer of layers) {
+          if (layer.still) {
+            if (isActive(layer.clip, time)) frameLayers.set(layer.clip.id, layer.still);
+          } else if (layer.shown[index]) {
+            const picture = await layer.stream.next();
+            if (picture) frameLayers.set(layer.clip.id, picture);
+          }
         }
-        base += range.end - range.start;
+        drawFrame(ctx, {
+          time,
+          source: mainShown[index] ? outputToSource(project, time) : null,
+          main,
+          layers: frameLayers,
+        }, project, assets);
+        await videoSource.add(time, 1 / frameRate);
+        if (index % 5 === 0) onProgress(Math.min(0.99, (index + 1) / frameCount), 'Rendering');
       }
       videoSource.close();
     };
 
     const renderAudio = async () => {
       if (!audioSource) return;
-      const sink = new mb.AudioBufferSink(audioTrack);
-      for (const range of ranges) {
-        for await (const { buffer, timestamp } of sink.buffers(range.start, range.end)) {
-          signal?.throwIfAborted();
-          const rate = buffer.sampleRate;
-          const from = Math.max(0, Math.round((range.start - timestamp) * rate));
-          const to = Math.min(buffer.length, Math.round((range.end - timestamp) * rate));
-          if (to <= from) continue;
-          const piece = from === 0 && to === buffer.length ? buffer : sliceAudioBuffer(buffer, from, to);
-          // Each buffer is placed directly after the previous one, so the
-          // removed stretches close up without a gap.
-          await audioSource.add(piece);
-        }
-      }
-      audioSource.close();
+      await mixAudio(mb, project, {
+        mainTrack: audioTrack, openInput, rate: mixRate, total, audioSource, signal, warnings,
+      });
     };
 
     await Promise.all([renderVideo(), renderAudio()]);
@@ -205,13 +269,14 @@ export async function exportVideo(project, assets, { onProgress = () => {}, sign
 
     const blob = new Blob([output.target.buffer], { type: format.mimeType });
     onProgress(1, 'Done');
-    return { blob, videoCodec, audioCodec, duration: total, warnings };
+    return { blob, videoCodec, audioCodec, duration: total, warnings, frameRate };
   } catch (error) {
     if (output && output.state !== 'finalized' && output.state !== 'canceled') {
       await output.cancel().catch(() => {});
     }
     throw error;
   } finally {
-    input.dispose();
+    await Promise.all(streams.map((stream) => stream.close()));
+    for (const input of inputs.values()) input.dispose();
   }
 }

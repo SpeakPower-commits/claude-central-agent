@@ -24,6 +24,14 @@ export function createProject(file, duration, width, height) {
     headline: '',
     logo: 'none',           // off by default: client videos are not SpeakPower's
     captions: { enabled: true, segments: [] },
+    // The main video is track V1. Everything layered over it -- b-roll,
+    // pictures, titles, recordings, music -- lives in media and clips (see
+    // tracks.js), placed in time on the finished video.
+    joinTransition: 'cut',  // what happens where a removed part closes up
+    mainVolume: 1,
+    media: [],
+    clips: [],
+    trackOff: {},           // track id -> true when hidden (video) or muted (audio)
   };
 }
 
@@ -112,6 +120,32 @@ export function sourceToOutput(project, time) {
     elapsed += range.end - range.start;
   }
   return elapsed;
+}
+
+/**
+ * Position in the finished video to source time in the main video, or null
+ * once the main video has ended (layers can run on past it).
+ */
+export function outputToSource(project, time) {
+  let elapsed = 0;
+  for (const range of keptRanges(project)) {
+    const length = range.end - range.start;
+    if (time < elapsed + length) return range.start + Math.max(0, time - elapsed);
+    elapsed += length;
+  }
+  return null;
+}
+
+/** Where the kept stretches meet in the finished video: one time per closed-up cut. */
+export function joinTimes(project) {
+  const joins = [];
+  let elapsed = 0;
+  const ranges = keptRanges(project);
+  ranges.forEach((range, index) => {
+    elapsed += range.end - range.start;
+    if (index < ranges.length - 1) joins.push(elapsed);
+  });
+  return joins;
 }
 
 /**
