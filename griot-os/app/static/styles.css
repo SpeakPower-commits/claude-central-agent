@@ -238,6 +238,24 @@ a.ghost:hover {
   flex: none;
 }
 
+/* The video editor is a destination of its own, so it gets a real button,
+ * not just a sidebar link that disappears into the chrome. */
+.topbar a.video-editor-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--navy-800);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 0;
+}
+.topbar a.video-editor-button::before { content: "▶"; font-size: 10px; color: var(--gold-300); }
+.topbar a.video-editor-button:hover { background: var(--navy-700); color: #fff; }
+
 #thread-label {
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
