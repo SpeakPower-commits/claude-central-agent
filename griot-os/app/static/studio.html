@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SpeakPower Studio — Video Editor</title>
+  <meta name="description" content="Trim, cut, caption and brand your videos for Reels, TikTok and YouTube — right in the browser. Your video never leaves your computer. A product of SpeakPower." />
+  <meta name="author" content="SpeakPower" />
+  <meta name="theme-color" content="#283142" />
+
+  <!-- Studio is a SpeakPower product, so it carries SpeakPower's mark --
+       not the GRIOT Signature, which belongs to GRIOT OS. -->
+  <link rel="icon" href="/static/studio/brand/speakpower-badge.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/static/studio/brand/speakpower-badge.png" />
+
+  <link rel="stylesheet" href="/static/studio/studio.css" />
+</head>
+<body>
+  <header class="studio-bar">
+    <div class="studio-brand">
+      <img src="/static/studio/brand/speakpower-badge.png" alt="SpeakPower" width="36" height="36" />
+      <div>
+        <strong>SpeakPower Studio</strong>
+        <span>Video editor</span>
+      </div>
+    </div>
+    <a class="studio-back" href="/">← GRIOT OS</a>
+  </header>
+
+  <div id="unsupported" class="notice notice-error" hidden>
+    This editor needs a current version of <strong>Chrome</strong> or <strong>Edge</strong>.
+    It uses the browser's built-in video encoder, which this browser doesn't have.
+  </div>
+
+  <main class="studio">
+    <section class="stage" aria-label="Preview">
+      <div id="drop" class="drop">
+        <div class="drop-inner">
+          <p class="drop-title">Open a video to start</p>
+          <p class="drop-sub">Drag it here, or choose a file. It stays on your computer — nothing is uploaded.</p>
+          <label class="button button-primary">
+            Choose video
+            <input id="file" type="file" accept="video/*" hidden />
+          </label>
+        </div>
+      </div>
+
+      <div id="viewer" class="viewer" hidden>
+        <div class="preview-frame" id="preview-frame">
+          <canvas id="preview" aria-label="Edited video preview"></canvas>
+        </div>
+
+        <div class="transport">
+          <button id="play" class="button button-icon" type="button" aria-label="Play">▶</button>
+          <span class="clock"><span id="clock-now">0:00.0</span> / <span id="clock-total">0:00.0</span></span>
+          <span class="clock-note" id="clock-note"></span>
+        </div>
+
+        <div id="timeline" class="timeline"></div>
+
+        <div class="edit-row">
+          <button id="remove" class="button" type="button" disabled>Remove selection</button>
+          <span class="hint">Drag the gold handles to trim. Drag across the bar to select a part to remove.</span>
+        </div>
+
+        <ul id="cuts" class="cut-list" aria-label="Removed parts"></ul>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Settings">
+      <div class="panel-group">
+        <h2>Format</h2>
+        <div class="choices" role="radiogroup" aria-label="Format" id="formats"></div>
+      </div>
+
+      <div class="panel-group">
+        <h2>Framing</h2>
+        <div class="choices choices-2" role="radiogroup" aria-label="Framing">
+          <label class="choice"><input type="radio" name="framing" value="blur" checked /><span><strong>Fit</strong><small>Whole picture, blurred edges</small></span></label>
+          <label class="choice"><input type="radio" name="framing" value="crop" /><span><strong>Fill</strong><small>Crop to fill the screen</small></span></label>
+        </div>
+      </div>
+
+      <div class="panel-group">
+        <h2><label for="headline">Headline</label></h2>
+        <input id="headline" class="field" type="text" maxlength="90" placeholder="e.g. Your AI speaking coach" />
+        <p class="hint">Shown in a band near the top. Leave empty for none.</p>
+      </div>
+
+      <div class="panel-group">
+        <h2><label for="logo">Logo</label></h2>
+        <select id="logo" class="field">
+          <option value="none">None</option>
+          <option value="speakpower">SpeakPower</option>
+        </select>
+        <p class="hint">Off by default — a client's video shouldn't carry SpeakPower's mark unless you choose it.</p>
+      </div>
+
+      <div class="panel-group panel-export">
+        <button id="export" class="button button-primary button-wide" type="button" disabled>Export MP4</button>
+        <div id="progress" class="progress" hidden>
+          <div class="progress-bar"><div id="progress-fill"></div></div>
+          <div class="progress-row">
+            <span id="progress-text">Starting…</span>
+            <button id="cancel" class="button-link" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="result" class="result" hidden></div>
+      </div>
+
+      <div id="status" class="notice" hidden></div>
+
+      <p class="attribution">A product of <strong>SpeakPower</strong></p>
+    </aside>
+  </main>
+
+  <script type="module" src="/static/studio/app.js"></script>
+</body>
+</html>
