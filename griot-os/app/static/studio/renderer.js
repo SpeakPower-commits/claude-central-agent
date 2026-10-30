@@ -39,7 +39,20 @@ const LAYOUT = {
  * relied on from the system: an office PC will not have Inter installed, and a
  * missing font would silently change the look of every export.
  */
-export async function loadAssets(base = '/static/studio') {
+let assetsPromise = null;
+
+export function loadAssets(base = '/static/studio') {
+  // Shared by the editor and the automatic editor, so fonts register once.
+  if (!assetsPromise) {
+    assetsPromise = fetchAssets(base).catch((error) => {
+      assetsPromise = null;
+      throw error;
+    });
+  }
+  return assetsPromise;
+}
+
+async function fetchAssets(base) {
   const faces = [
     new FontFace(HEADLINE_FONT, `url(${base}/fonts/Inter-ExtraBold.otf)`),
     new FontFace(CAPTION_FONT, `url(${base}/fonts/Inter-Black.otf)`),
@@ -153,6 +166,26 @@ function layoutBox(layout, size, imageWidth, imageHeight, width, height, unit, f
     case 'bottom': return { x: 0, y: height / 2, width, height: height / 2 };
     case 'left': return { x: 0, y: 0, width: width / 2, height };
     case 'right': return { x: width / 2, y: 0, width: width / 2, height };
+    case 'logo-tr': case 'logo-tl': case 'logo-br': case 'logo-bl': {
+      // A logo or badge: small, whole, unframed, in a corner.
+      const aspect = imageHeight / imageWidth || 1;
+      let boxWidth = width * Math.min(0.4, Math.max(0.06, size || 0.14));
+      let boxHeight = boxWidth * aspect;
+      if (boxHeight > height * 0.18) {
+        boxHeight = height * 0.18;
+        boxWidth = boxHeight / aspect;
+      }
+      const margin = 40 * unit;
+      const right = layout.endsWith('r');
+      const top = layout.includes('-t');
+      return {
+        x: right ? width - boxWidth - margin : margin,
+        y: top ? height * frameLayout.logoTop : height * (1 - frameLayout.captionBottom) - 230 * unit - boxHeight,
+        width: boxWidth,
+        height: boxHeight,
+        plain: true,
+      };
+    }
     case 'pip-tr': case 'pip-tl': case 'pip-br': case 'pip-bl': {
       const aspect = imageHeight / imageWidth || 9 / 16;
       let boxWidth = width * Math.min(0.8, Math.max(0.15, size || 0.36));
@@ -226,10 +259,162 @@ function drawLayer(ctx, clip, layer, time, width, height, unit, frameLayout) {
       ctx.clip();
       drawPicture(ctx, layer.image, layer.width, layer.height, box, 'cover');
       ctx.restore();
+    } else if (box.plain) {
+      ctx.drawImage(layer.image, box.x, box.y, box.width, box.height);
     } else {
       drawPicture(ctx, layer.image, layer.width, layer.height, box, clip.layout === 'fit' ? 'contain' : 'cover');
     }
   });
+}
+
+/** Lines of text that fit a width, shrinking the font until they fit in maxLines. */
+function fitText(ctx, text, font, size, maxWidth, maxLines) {
+  let fontSize = size;
+  let lines = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    ctx.font = `${fontSize}px ${font}`;
+    lines = wrapLines(ctx, text, maxWidth);
+    if (lines.length <= maxLines) break;
+    fontSize *= 0.88;
+  }
+  return { lines: lines.slice(0, maxLines), fontSize };
+}
+
+/**
+ * Designed cards, drawn rather than imported:
+ *   hook    -- the opening line of a short, big over a darkened frame
+ *   chapter -- a titled panel marking a new part of an episode
+ *   end     -- the closing card: logo and call to action on navy
+ */
+function drawCard(ctx, clip, time, width, height, unit, assets, project) {
+  const title = (clip.title || '').trim();
+  const subtitle = (clip.subtitle || '').trim();
+  const box = { x: 0, y: 0, width, height };
+  withTransition(ctx, transitionAt(clip, time), box, width, () => {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (clip.style === 'end') {
+      ctx.fillStyle = '#283142';
+      ctx.fillRect(0, 0, width, height);
+      // The client's logo from the brand kit when the card has one, else SpeakPower's.
+      const own = clip.mediaId ? project.media.find((item) => item.id === clip.mediaId)?.image : null;
+      const logo = own || assets?.logos?.speakpower;
+      let y = height * 0.36;
+      if (logo) {
+        // Fit within a square box, whatever the logo's shape.
+        const box = Math.min(width, height) * 0.3;
+        const ratio = logo.naturalHeight / logo.naturalWidth || 1;
+        const logoWidth = ratio > 1 ? box / ratio : box;
+        const logoHeight = logoWidth * ratio;
+        ctx.drawImage(logo, (width - logoWidth) / 2, y - logoHeight / 2, logoWidth, logoHeight);
+        y += logoHeight / 2 + 90 * unit;
+      }
+      const main = fitText(ctx, title, HEADLINE_FONT, 76 * unit, width * 0.82, 3);
+      ctx.fillStyle = WHITE;
+      ctx.font = `${main.fontSize}px ${HEADLINE_FONT}`;
+      main.lines.forEach((line, index) => ctx.fillText(line, width / 2, y + index * main.fontSize * 1.2));
+      y += main.lines.length * main.fontSize * 1.2 + 24 * unit;
+      if (subtitle) {
+        ctx.fillStyle = GOLD;
+        ctx.font = `${44 * unit}px ${HEADLINE_FONT}`;
+        ctx.fillText(subtitle, width / 2, y);
+      }
+      return;
+    }
+
+    if (clip.style === 'hook') {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+      ctx.fillRect(0, 0, width, height);
+      const text = fitText(ctx, title.toUpperCase(), CAPTION_FONT, 104 * unit, width * 0.84, 4);
+      const lineHeight = text.fontSize * 1.12;
+      const top = height * 0.42 - (text.lines.length * lineHeight) / 2;
+      ctx.font = `${text.fontSize}px ${CAPTION_FONT}`;
+      ctx.lineJoin = 'round';
+      text.lines.forEach((line, index) => {
+        const y = top + lineHeight * (index + 0.5);
+        ctx.lineWidth = 16 * unit;
+        ctx.strokeStyle = '#000';
+        ctx.strokeText(line, width / 2, y);
+        ctx.fillStyle = index === 0 ? GOLD : WHITE;
+        ctx.fillText(line, width / 2, y);
+      });
+      return;
+    }
+
+    // chapter
+    const text = fitText(ctx, title, HEADLINE_FONT, 72 * unit, width * 0.7, 2);
+    const lineHeight = text.fontSize * 1.18;
+    const labelSize = 30 * unit;
+    ctx.font = `${text.fontSize}px ${HEADLINE_FONT}`;
+    const textWidth = Math.max(...text.lines.map((line) => ctx.measureText(line).width), 200 * unit);
+    const panel = {
+      width: textWidth + 120 * unit,
+      height: text.lines.length * lineHeight + labelSize + 100 * unit,
+    };
+    panel.x = (width - panel.width) / 2;
+    panel.y = (height - panel.height) / 2;
+    ctx.fillStyle = NAVY_BAND;
+    roundedRect(ctx, panel.x, panel.y, panel.width, panel.height, 18 * unit);
+    ctx.fill();
+    ctx.fillStyle = GOLD;
+    ctx.fillRect(panel.x + panel.width / 2 - 40 * unit, panel.y + 34 * unit, 80 * unit, 5 * unit);
+    ctx.font = `${labelSize}px ${HEADLINE_FONT}`;
+    ctx.fillText((subtitle || 'Chapter').toUpperCase(), width / 2, panel.y + 34 * unit + labelSize);
+    ctx.fillStyle = WHITE;
+    ctx.font = `${text.fontSize}px ${HEADLINE_FONT}`;
+    text.lines.forEach((line, index) => {
+      ctx.fillText(line, width / 2, panel.y + 60 * unit + labelSize + lineHeight * (index + 0.5));
+    });
+  });
+}
+
+/** A key phrase popping up as it is said: navy on a gold tag, slightly tilted. */
+function drawCallout(ctx, clip, time, width, height, unit, layout) {
+  const text = (clip.title || '').trim().toUpperCase();
+  if (!text) return;
+  const fitted = fitText(ctx, text, CAPTION_FONT, 78 * unit, width * 0.72, 2);
+  const lineHeight = fitted.fontSize * 1.1;
+  ctx.font = `${fitted.fontSize}px ${CAPTION_FONT}`;
+  const textWidth = Math.max(...fitted.lines.map((line) => ctx.measureText(line).width));
+  const padX = 34 * unit;
+  const padY = 22 * unit;
+  const box = {
+    width: textWidth + 2 * padX,
+    height: fitted.lines.length * lineHeight + 2 * padY,
+  };
+  box.x = (width - box.width) / 2;
+  box.y = height * (layout === LAYOUT['9:16'] ? 0.36 : 0.3) - box.height / 2;
+
+  withTransition(ctx, transitionAt(clip, time), box, width, () => {
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.035);
+    ctx.translate(-cx, -cy);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 24 * unit;
+    ctx.shadowOffsetY = 8 * unit;
+    ctx.fillStyle = GOLD;
+    roundedRect(ctx, box.x, box.y, box.width, box.height, 16 * unit);
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = '#1d2432';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fitted.lines.forEach((line, index) => ctx.fillText(line, cx, box.y + padY + lineHeight * (index + 0.5)));
+  });
+}
+
+/** A thin gold bar across the top that fills as the clip plays. */
+function drawProgress(ctx, clip, time, width, unit) {
+  const fraction = Math.min(1, Math.max(0, (time - clip.start) / (clip.out - clip.in)));
+  const barHeight = 10 * unit;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fillRect(0, 0, width, barHeight);
+  ctx.fillStyle = GOLD;
+  ctx.fillRect(0, 0, width * fraction, barHeight);
+  ctx.restore();
 }
 
 /** A name title for interviews: navy panel, gold accent bar, name over role. */
@@ -337,6 +522,12 @@ export function drawFrame(ctx, frame, project, assets) {
       if (!isActive(clip, time)) continue;
       if (clip.kind === 'text') {
         drawLowerThird(ctx, clip, time, width, height, unit, layout);
+      } else if (clip.kind === 'card') {
+        drawCard(ctx, clip, time, width, height, unit, assets, project);
+      } else if (clip.kind === 'callout') {
+        drawCallout(ctx, clip, time, width, height, unit, layout);
+      } else if (clip.kind === 'progress') {
+        drawProgress(ctx, clip, time, width, unit);
       } else {
         const layer = frame.layers?.get(clip.id);
         if (layer?.image && layer.width && layer.height) drawLayer(ctx, clip, layer, time, width, height, unit, layout);
@@ -349,15 +540,19 @@ export function drawFrame(ctx, frame, project, assets) {
   const logoMargin = (project.format === '9:16' ? 60 : 40) * unit;
 
   const headline = (project.headline || '').trim();
-  if (headline) {
-    // Ease the band in over the first quarter second of the finished video.
-    const alpha = Math.min(1, Math.max(0, time / 0.25));
+  const headlineFrom = project.headlineFrom || 0;
+  // Like the captions, the headline belongs to the main video: it leaves before an end card.
+  const mainShowing = frame.source !== null && frame.source !== undefined;
+  if (headline && time >= headlineFrom && mainShowing) {
+    // Ease the band in over a quarter second (after any opening hook card).
+    const alpha = Math.min(1, Math.max(0, (time - headlineFrom) / 0.25));
     const reserve = logo && layout.logoBesideHeadline ? logoWidth + logoMargin : 0;
     drawHeadline(ctx, headline, width, height, unit, layout, reserve, alpha);
   }
 
-  // Captions follow the main video's words, so they end when it does.
-  if (frame.source !== null && frame.source !== undefined) {
+  // Captions follow the main video's words, so they end when it does. They
+  // wait for an opening hook card to finish, so the two never stack.
+  if (frame.source !== null && frame.source !== undefined && time >= (project.captionsFrom || 0)) {
     drawCaptions(ctx, { width, height, unit, layout, times: { source: frame.source, output: time } }, project.captions);
   }
 

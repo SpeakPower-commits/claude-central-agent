@@ -614,7 +614,7 @@ function resetVideo() {
  * the look and every layer on the other tracks; only the trim, cuts and
  * captions belong to the old video and start fresh.
  */
-function openFile(file) {
+function openFile(file, preset = null) {
   if (!file) return;
   if (file.type && !file.type.startsWith('video/')) {
     showStatus(`"${file.name}" doesn't look like a video file.`, 'error');
@@ -641,9 +641,11 @@ function openFile(file) {
       return;
     }
     const previous = state.project;
-    const project = createProject(file, duration, video.videoWidth, video.videoHeight);
+    const project = preset || createProject(file, duration, video.videoWidth, video.videoHeight);
     // Keep the look the user has already set up when they switch videos.
-    if (previous) {
+    if (preset) {
+      syncControls(project);
+    } else if (previous) {
       Object.assign(project, {
         format: previous.format, framing: previous.framing,
         headline: previous.headline, logo: previous.logo,
@@ -658,7 +660,7 @@ function openFile(file) {
       project.joinTransition = ui.joinTransition.value;
       project.mainVolume = Number(ui.mainVolume.value);
     }
-    project.captions.enabled = ui.captionsOn.checked;
+    if (!preset) project.captions.enabled = ui.captionsOn.checked;
     state.project = project;
     state.video = video;
     state.time = 0;
@@ -683,6 +685,25 @@ function openFile(file) {
   }, { once: true });
 }
 
+/** Set the side panel's controls to match a project made elsewhere (the automatic editor). */
+function syncControls(project) {
+  const format = document.querySelector(`input[name="format"][value="${project.format}"]`);
+  if (format) format.checked = true;
+  const framing = document.querySelector(`input[name="framing"][value="${project.framing}"]`);
+  if (framing) framing.checked = true;
+  ui.headline.value = project.headline || '';
+  ui.logo.value = project.logo;
+  ui.joinTransition.value = project.joinTransition;
+  ui.mainVolume.value = project.mainVolume;
+  ui.mainVolumeValue.textContent = `${Math.round(project.mainVolume * 100)}%`;
+  ui.captionsOn.checked = project.captions.enabled;
+}
+
+/** Open a finished automatic edit in the editor, to change anything by hand. */
+export function loadProject(project) {
+  openFile(project.file, project);
+}
+
 ui.file.addEventListener('change', () => openFile(ui.file.files[0]));
 ui.replaceMain.addEventListener('change', () => {
   const file = ui.replaceMain.files[0];
@@ -699,6 +720,7 @@ ui.replaceMain.addEventListener('change', () => {
   ui.drop.classList.remove('is-over');
 }));
 document.addEventListener('drop', (event) => {
+  if (document.body.dataset.view !== 'finetune') return; // the automatic editor takes drops there
   const files = [...(event.dataTransfer?.files || [])];
   // Before a video is open, a dropped video becomes the main one; after, files go on the tracks.
   if (state.project) addFiles(files);
@@ -796,7 +818,7 @@ ui.zoom.addEventListener('input', () => tracks.setZoom(Number(ui.zoom.value)));
 
 // --- The clip inspector --------------------------------------------------------------
 
-const KIND_LABELS = { video: 'Video', image: 'Picture', audio: 'Sound', text: 'Title' };
+const KIND_LABELS = { video: 'Video', image: 'Picture', audio: 'Sound', text: 'Title', card: 'Card', callout: 'Pop-up text', progress: 'Progress bar' };
 const TRANSITION_LENGTHS = [0.25, 0.5, 0.75, 1, 1.5, 2];
 
 const options = (entries, current) => entries
@@ -822,9 +844,11 @@ function renderInspector() {
       <span class="hint" data-slot="where"></span>
     </div>
     <div class="inspector-grid">
-      ${clip.kind === 'text' ? `
-        <label class="wide">Name<input class="field" data-field="title" maxlength="60" /></label>
-        <label class="wide">Role or subtitle<input class="field" data-field="subtitle" maxlength="80" /></label>` : ''}
+      ${clip.kind === 'text' || clip.kind === 'card' ? `
+        <label class="wide">${clip.kind === 'text' ? 'Name' : 'Text'}<input class="field" data-field="title" maxlength="120" /></label>
+        <label class="wide">${clip.kind === 'text' ? 'Role or subtitle' : 'Small text'}<input class="field" data-field="subtitle" maxlength="80" /></label>` : ''}
+      ${clip.kind === 'callout' ? `
+        <label class="wide">Pop-up text<input class="field" data-field="title" maxlength="40" /></label>` : ''}
       <label>Track<select class="field" data-field="track">${options(tracksFor(clip.kind).map((track) => [track, trackLabel(track)]), clip.track)}</select></label>
       <label>Starts at (s)<input class="field" type="number" min="0" step="0.1" data-field="start" /></label>
       <label>Length (s)<input class="field" type="number" min="0.2" step="0.1" data-field="length" /></label>
@@ -981,7 +1005,7 @@ function togglePlay() {
 
 ui.play.addEventListener('click', togglePlay);
 document.addEventListener('keydown', (event) => {
-  if (!state.project || document.querySelector('dialog[open]')) return;
+  if (!state.project || document.querySelector('dialog[open]') || document.body.dataset.view !== 'finetune') return;
   const typing = event.target.closest('input, select, textarea, button, [contenteditable]');
   if (event.code === 'Space' && !typing) {
     event.preventDefault();

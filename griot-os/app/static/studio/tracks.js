@@ -46,7 +46,16 @@ export const LAYOUTS = {
   'pip-tl': 'Corner · top left',
   'pip-br': 'Corner · bottom right',
   'pip-bl': 'Corner · bottom left',
+  'logo-tr': 'Logo · top right',
+  'logo-tl': 'Logo · top left',
+  'logo-br': 'Logo · bottom right',
+  'logo-bl': 'Logo · bottom left',
 };
+
+// Graphics drawn by Studio itself rather than imported: lower-third titles,
+// cards, pop-up key phrases and the progress bar.
+export const DRAWN_KINDS = ['text', 'card', 'callout', 'progress'];
+export const CARD_STYLES = { hook: 'Opening hook', chapter: 'Chapter', end: 'End card' };
 
 export const TRANSITIONS = {
   none: 'None',
@@ -68,7 +77,7 @@ const DECLICK = 0.008;                         // tiny audio ramp so joins never
 export const MIN_CLIP = 0.2;
 const EPSILON = 1e-3;
 
-export const DEFAULT_LENGTH = { image: 5, text: 4 };
+export const DEFAULT_LENGTH = { image: 5, text: 4, card: 3, callout: 1.4, progress: 5 };
 
 let counter = 0;
 export const newId = (prefix) => `${prefix}${Date.now().toString(36)}${(counter += 1).toString(36)}`;
@@ -136,7 +145,10 @@ export function addClip(project, { kind, media = null, start = 0, track = null, 
     transitionDuration: 0.5,
     title: extra.title || '',
     subtitle: extra.subtitle || '',
+    style: extra.style || '',
   };
+  if (extra.size) clip.size = extra.size;
+  if (extra.transitionDuration) clip.transitionDuration = extra.transitionDuration;
   project.clips.push(clip);
   return clip;
 }

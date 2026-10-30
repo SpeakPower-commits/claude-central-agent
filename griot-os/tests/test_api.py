@@ -754,6 +754,11 @@ def test_studio_page_is_served_without_a_key(client):
     "/static/studio/mixer.js",
     "/static/studio/media.js",
     "/static/studio/capture.js",
+    "/static/studio/autoedit.js",
+    "/static/studio/auto.js",
+    "/static/studio/brain.js",
+    "/static/studio/brain-worker.js",
+    "/static/studio/brandkit.js",
     "/static/studio/studio.css",
     "/static/studio/fonts/Inter-Black.otf",
     "/static/studio/fonts/Inter-ExtraBold.otf",
@@ -769,4 +774,6 @@ def test_studio_assets_are_served(client, path):
 
 
 def test_griot_links_to_the_studio(client):
-    assert 'href="/studio"' in client.get("/").text
+    page = client.get("/").text
+    assert 'href="/studio"' in page
+    assert "video-editor-button" in page

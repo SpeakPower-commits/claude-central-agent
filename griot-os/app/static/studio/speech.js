@@ -162,7 +162,7 @@ function request(worker, message, transfer, onMessage, signal) {
  *
  * @param file      the video (a File)
  * @param options   { model: 'quick'|'accurate', language, onProgress(stage, fraction), signal }
- * @returns         { segments, wordLevel }
+ * @returns         { segments, wordLevel, samples } -- samples: the 16 kHz mono sound, for finding pauses
  */
 export async function transcribeFile(file, { model = 'accurate', language = 'english', onProgress = () => {}, signal } = {}) {
   onProgress('Reading the sound', 0);
@@ -212,7 +212,7 @@ export async function transcribeFile(file, { model = 'accurate', language = 'eng
       ? segmentsFromWords(words)
       : segmentsFromLines([...lines, ...segmentsFromWords(words).map(({ start, end, text }) => ({ start, end, text }))]
         .sort((a, b) => a.start - b.start));
-    return { segments, wordLevel };
+    return { segments, wordLevel, samples };
   } finally {
     worker.terminate();
   }

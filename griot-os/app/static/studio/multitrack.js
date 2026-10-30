@@ -288,7 +288,10 @@ export class TrackTimeline {
     element.style.setProperty('--fade-in', `${fade(clip.transitionIn)}px`);
     element.style.setProperty('--fade-out', `${fade(clip.transitionOut)}px`);
 
-    const name = clip.kind === 'text' ? (clip.title || clip.subtitle || 'Title') : (media?.name || 'Missing file');
+    const drawnNames = { text: 'Title', card: 'Card', callout: 'Pop-up', progress: 'Progress bar' };
+    const name = clip.kind in drawnNames
+      ? (clip.title || clip.subtitle || drawnNames[clip.kind])
+      : (media?.name || 'Missing file');
     const label = document.createElement('span');
     label.className = 'mt-clip-name';
     label.textContent = name;
