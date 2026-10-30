@@ -167,7 +167,12 @@ body { margin: 0; }
   flex: none;
 }
 
-button.ghost {
+button.ghost,
+a.ghost {
+  display: block;
+  box-sizing: border-box;
+  text-align: center;
+  text-decoration: none;
   width: 100%;
   margin-top: 14px;
   padding: 10px 12px;
@@ -181,7 +186,8 @@ button.ghost {
   transition: border-color 0.15s, color 0.15s;
 }
 
-button.ghost:hover {
+button.ghost:hover,
+a.ghost:hover {
   border-color: var(--gold-500);
   color: var(--gold-400);
 }
@@ -395,7 +401,8 @@ button.ghost:hover {
 
   .sidebar select,
   .key-bar,
-  button.ghost {
+  button.ghost,
+  a.ghost {
     margin: 0;
     width: auto;
     flex: 1 1 150px;

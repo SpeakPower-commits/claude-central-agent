@@ -166,6 +166,17 @@ def root():
     return FileResponse(config.STATIC_DIR / "index.html")
 
 
+@app.get("/studio", include_in_schema=False)
+def studio():
+    """SpeakPower Studio, the in-browser video editor.
+
+    Public and key-free on purpose: the page never calls this API. The video
+    is opened, edited and exported entirely inside the visitor's browser, so
+    serving the page costs nothing and exposes nothing.
+    """
+    return FileResponse(config.STATIC_DIR / "studio.html")
+
+
 # --- Authenticated routes ----------------------------------------------------
 
 protected = [Depends(require_api_key)]

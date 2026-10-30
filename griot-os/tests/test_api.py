@@ -729,3 +729,35 @@ def test_deleting_a_project_removes_only_what_was_filed_under_it(client):
     assert [m["title"] for m in db.fetch_memories("client-other", drop)] == ["Other tenant, same slug"]
     # Once deleted, the slug can no longer be used.
     assert client.post("/chat", json={"message": "x", "project": drop}, headers=tenant).status_code == 400
+
+
+def test_studio_page_is_served_without_a_key(client):
+    """The video editor is public: it never calls the API, so it needs no key."""
+    response = client.get("/studio")
+    assert response.status_code == 200
+    assert "SpeakPower Studio" in response.text
+    assert "/static/studio/app.js" in response.text
+
+
+@pytest.mark.parametrize("path", [
+    "/static/studio/app.js",
+    "/static/studio/project.js",
+    "/static/studio/renderer.js",
+    "/static/studio/timeline.js",
+    "/static/studio/exporter.js",
+    "/static/studio/studio.css",
+    "/static/studio/fonts/Inter-Black.otf",
+    "/static/studio/fonts/Inter-ExtraBold.otf",
+    "/static/studio/fonts/OFL.txt",
+    "/static/studio/brand/speakpower-badge.png",
+])
+def test_studio_assets_are_served(client, path):
+    response = client.get(path)
+    assert response.status_code == 200, path
+    # Vercel functions cap a response at 4.5 MB, and these are served through
+    # the function, so any asset over that would 500 in production.
+    assert len(response.content) < 4_500_000, path
+
+
+def test_griot_links_to_the_studio(client):
+    assert 'href="/studio"' in client.get("/").text
